@@ -2,7 +2,12 @@
 
 > Test-Driven Development plan organized into sprints.
 > Each feature starts with tests, then implementation, then integration.
-> Tests use Unity Test Framework (NUnit) for C# and pytest for SOFA Python scenes.
+> Uses a **custom SOFA-Unity bridge** (C++ native plugin + C# managed layer) — no SofaUnity plugin.
+> Tests use Unity Test Framework (NUnit) for C#, Google Test for native C++, and pytest for SOFA Python scenes.
+>
+> See also:
+> - [10 - Custom Integration Plan](10-custom-integration-plan.md) — architecture and API design
+> - [11 - Agent Review & Negotiation](11-agent-review-negotiation.md) — design decisions and rationale
 
 ---
 
@@ -13,7 +18,7 @@
 ```
          /  E2E Tests  \          <- 5-10 workflow integration tests
         / Integration    \        <- 15-20 component interaction tests
-       / Unit Tests        \      <- 50-80 pure logic tests
+       / Unit Tests        \      <- 50-80 pure logic tests (C# + C++)
       /____________________\
 ```
 
@@ -22,6 +27,7 @@
 | Category | Framework | Location | What It Tests |
 |----------|-----------|----------|---------------|
 | **Unit (C#)** | NUnit + Unity Test Framework | `Tests/EditMode/` | Pure logic: angle math, alignment validation, data structures |
+| **Unit (C++)** | Google Test | `native/tests/` | Native bridge: SOFA lifecycle, scene construction, data readback |
 | **Unit (SOFA)** | pytest + SofaPython3 | `Tests/SOFA/` | SOFA scene configs: material properties, solver convergence, ROM output |
 | **Integration** | Unity Test Framework (Play Mode) | `Tests/PlayMode/` | Component interactions: SofaBridge + ROMEngine, ResectionEngine + AnatomyManager |
 | **E2E** | Unity Test Framework (Play Mode) | `Tests/PlayMode/E2E/` | Full workflow: load anatomy -> measure ROM -> resect -> implant -> measure post-op ROM -> compare |
@@ -34,7 +40,9 @@ Example: `MeasureDorsiflexion_ArticulationAt20Degrees_Returns20()`
 
 ---
 
-## Sprint 0: Project Scaffolding & Infrastructure (Week 1)
+## Sprint 0: Project Scaffolding & Native Bridge Foundation (Weeks 1-2)
+
+> This sprint is expanded to 2 weeks because we are building the native C++ bridge from scratch.
 
 ### 0.1 Unity Project Setup
 
@@ -50,72 +58,204 @@ TEST: Required packages installed (TextMeshPro, InputSystem, Addressables)
 - Set up assembly definitions:
   - `AnkleSim.Core` (pure logic, no Unity dependencies)
   - `AnkleSim.Runtime` (MonoBehaviours, Unity API)
+  - `AnkleSim.Bridge` (P/Invoke declarations, NativeArray mesh sync)
   - `AnkleSim.Editor` (editor tools)
   - `AnkleSim.Tests.EditMode`
   - `AnkleSim.Tests.PlayMode`
 - Configure physics: TGS solver, 200Hz fixed timestep (0.005s)
 - Import required packages
 
-### 0.2 SOFA Integration Setup
+### 0.2 Native Plugin Build System
 
-**Tests First:**
-```
-TEST: SofaUnity DLLs load without error
-TEST: SofaContext initializes and returns valid handle
-TEST: SofaContext can create empty scene and step once
-TEST: SofaContext cleanup releases all resources
+**Tests First (C++ / Google Test):**
+```cpp
+// native/tests/test_build.cpp
+TEST(Build, NativePluginLoads) {
+    // Verify DLL/SO can be loaded and exports are found
+    void* handle = dlopen("SofaAnkleBridge.so", RTLD_LAZY);
+    ASSERT_NE(handle, nullptr);
+    auto init_fn = dlsym(handle, "sofa_bridge_init");
+    ASSERT_NE(init_fn, nullptr);
+    dlclose(handle);
+}
 ```
 
 **Implementation:**
-- Import SofaUnity package
-- Place SOFA DLLs in `Assets/Plugins/x86_64/`
-- Create `SofaContext` wrapper MonoBehaviour
-- Verify initialization/shutdown lifecycle
+- Set up CMake project in `native/`
+- Configure SOFA library linking (find_package or manual paths)
+- Build `SofaAnkleBridge.dll/.so`
+- Create deployment script to copy DLLs to `Assets/Plugins/x86_64/`
+- Create dependency walker script (collects all transitive SOFA DLL dependencies)
 
-### 0.3 Directory & Configuration Structure
+### 0.3 Native Bridge Lifecycle
+
+**Tests First (C++ / Google Test):**
+```cpp
+// native/tests/test_lifecycle.cpp
+TEST(SofaBridge, Init_WithValidPluginDir_ReturnsSuccess) {
+    ASSERT_EQ(sofa_bridge_init("./plugins"), 0);
+    sofa_bridge_shutdown();
+}
+
+TEST(SofaBridge, Init_WithInvalidPluginDir_ReturnsError) {
+    ASSERT_NE(sofa_bridge_init("/nonexistent"), 0);
+    const char* err = sofa_bridge_get_error();
+    ASSERT_NE(err, nullptr);
+}
+
+TEST(SofaBridge, Shutdown_AfterInit_Succeeds) {
+    sofa_bridge_init("./plugins");
+    sofa_bridge_shutdown();
+    // No crash, no leak (run under valgrind/ASAN)
+}
+
+TEST(SofaBridge, VersionHandshake_ReturnsValidVersion) {
+    SofaBridgeVersion v = sofa_bridge_get_version();
+    ASSERT_EQ(v.bridge_version_major, 1);
+    ASSERT_GT(v.sofa_version_major, 0);
+}
+
+TEST(SofaBridge, CreateEmptyScene_AndStepOnce) {
+    sofa_bridge_init("./plugins");
+    SofaSceneConfig config = default_test_config();
+    ASSERT_EQ(sofa_scene_create(&config), 0);
+    ASSERT_EQ(sofa_scene_finalize(), 0);
+    ASSERT_EQ(sofa_step(0.01f), 0);
+    sofa_bridge_shutdown();
+}
+
+TEST(SofaBridge, AsyncStep_CompletesWithoutDeadlock) {
+    sofa_bridge_init("./plugins");
+    SofaSceneConfig config = default_test_config();
+    sofa_scene_create(&config);
+    sofa_scene_finalize();
+    ASSERT_EQ(sofa_step_async(), 0);
+    // Poll with 5-second timeout
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (!sofa_step_async_is_complete()) {
+        ASSERT_LT(std::chrono::steady_clock::now(), deadline) << "Step timed out";
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    sofa_bridge_shutdown();
+}
+
+TEST(SofaBridge, Shutdown_WhileAsyncStepRunning_DoesNotCrash) {
+    sofa_bridge_init("./plugins");
+    SofaSceneConfig config = default_test_config();
+    sofa_scene_create(&config);
+    sofa_scene_finalize();
+    sofa_step_async();
+    // Immediate shutdown — must not crash or deadlock
+    sofa_bridge_shutdown();
+}
+```
+
+**Implementation:**
+- `bridge_api.cpp` — flat C API (`extern "C"`) wrapping `SofaSimulationManager`
+- `sofa_simulation.cpp` — SOFA lifecycle: `init()` loads plugins, `createScene()` builds root node with FreeMotionAnimationLoop + GenericConstraintSolver + collision pipeline
+- `thread_manager.cpp` — background stepping thread with join-on-shutdown and cancellation token
+- Version handshake struct with bridge + SOFA version numbers
+
+### 0.4 C# P/Invoke Layer
+
+**Tests First (PlayMode):**
+```csharp
+// Tests/PlayMode/Integration/NativeBridgeTests.cs
+[UnityTest] public IEnumerator NativeBridge_DllLoads_WithoutError()
+[UnityTest] public IEnumerator NativeBridge_Init_ReturnsSuccess()
+[UnityTest] public IEnumerator NativeBridge_VersionCheck_Passes()
+[UnityTest] public IEnumerator NativeBridge_CreateScene_WithDefaultConfig()
+[UnityTest] public IEnumerator NativeBridge_StepSync_Completes()
+[UnityTest] public IEnumerator NativeBridge_StepAsync_CompleteWithinTimeout()
+[UnityTest] public IEnumerator NativeBridge_Shutdown_ReleasesResources()
+[UnityTest] public IEnumerator NativeBridge_Shutdown_CanReinitializeAfter()
+```
+
+**Implementation:**
+- `SofaNativeBridge.cs` — P/Invoke declarations with `[DllImport("SofaAnkleBridge")]`
+- `NativeStructs.cs` — C# struct mirrors (`SofaSceneConfig`, `SofaBridgeVersion`, etc.) with `[StructLayout(LayoutKind.Sequential)]`
+- `SofaSimulation.cs` — high-level C# API wrapping P/Invoke calls with error checking and `SofaBridgeException` throwing
+- `SofaBridgeComponent.cs` — MonoBehaviour with `[DefaultExecutionOrder(-100)]` for Unity lifecycle integration
+
+### 0.5 Directory & Configuration Structure
 
 ```
-Assets/
-├── AnkleSim/
-│   ├── Core/                    # Assembly: AnkleSim.Core
-│   │   ├── DataModels/          # ROMRecord, AlignmentMetrics, etc.
-│   │   ├── Validation/          # Alignment validators, range checkers
-│   │   └── Math/                # Angle calculations, plane geometry
-│   ├── Runtime/                 # Assembly: AnkleSim.Runtime
-│   │   ├── Anatomy/             # AnatomyManager
-│   │   ├── ROM/                 # ROMEngine
-│   │   ├── Resection/           # ResectionEngine
-│   │   ├── Implant/             # ImplantManager
-│   │   ├── Comparison/          # ComparisonEngine
-│   │   ├── Workflow/            # WorkflowManager
-│   │   ├── Bridge/              # SofaBridge, SofaContext
-│   │   └── UI/                  # UI controllers
-│   ├── Editor/                  # Assembly: AnkleSim.Editor
-│   ├── ScriptableObjects/       # Config assets
-│   ├── Prefabs/
-│   ├── Materials/
-│   ├── Scenes/
-│   └── StreamingAssets/
-│       ├── SOFA/                # .scn/.py scene files
-│       └── Meshes/              # VTK/STL volumetric meshes
-├── Plugins/
-│   ├── SofaUnity/               # SofaUnity C# asset
-│   ├── x86_64/                  # SOFA native DLLs
-│   └── EzySlice/                # Mesh cutting library
-├── Tests/
-│   ├── EditMode/
-│   │   ├── Core/
-│   │   ├── Validation/
-│   │   └── Math/
-│   ├── PlayMode/
-│   │   ├── Integration/
-│   │   └── E2E/
-│   └── SOFA/                    # pytest-based SOFA scene tests
+project-root/
+├── native/                              # C++ native plugin
+│   ├── CMakeLists.txt
+│   ├── include/
+│   │   └── sofa_ankle_bridge.h          # Public C API header
+│   ├── src/
+│   │   ├── bridge_api.cpp               # Flat C API (extern "C")
+│   │   ├── sofa_simulation.h/.cpp       # SOFA lifecycle manager
+│   │   ├── scene_builder.h/.cpp         # Programmatic scene construction
+│   │   ├── data_transfer.h/.cpp         # Position/force readback + buffers
+│   │   ├── command_handler.h/.cpp       # Resection/implant/constraint commands
+│   │   └── thread_manager.h/.cpp        # Background thread with cancellation
+│   └── tests/
+│       ├── test_lifecycle.cpp
+│       ├── test_scene_construction.cpp
+│       ├── test_data_transfer.cpp
+│       ├── test_resection.cpp
+│       └── test_threading.cpp
+│
+├── unity-project/
+│   ├── Assets/
+│   │   ├── AnkleSim/
+│   │   │   ├── Core/                    # Assembly: AnkleSim.Core
+│   │   │   │   ├── DataModels/          # ROMRecord, AlignmentMetrics, etc.
+│   │   │   │   ├── Validation/          # Alignment validators, range checkers
+│   │   │   │   └── Math/                # Angle calculations, plane geometry
+│   │   │   ├── Bridge/                  # Assembly: AnkleSim.Bridge
+│   │   │   │   ├── SofaNativeBridge.cs  # P/Invoke declarations
+│   │   │   │   ├── NativeStructs.cs     # C# struct mirrors
+│   │   │   │   ├── SofaSimulation.cs    # High-level C# API
+│   │   │   │   ├── SofaBridgeComponent.cs # MonoBehaviour wrapper
+│   │   │   │   ├── SofaMeshTransfer.cs  # NativeArray mesh sync + Burst jobs
+│   │   │   │   └── SofaBridgeException.cs
+│   │   │   ├── Runtime/                 # Assembly: AnkleSim.Runtime
+│   │   │   │   ├── Anatomy/             # AnatomyManager
+│   │   │   │   ├── ROM/                 # ROMEngine
+│   │   │   │   ├── Resection/           # ResectionEngine
+│   │   │   │   ├── Implant/             # ImplantManager
+│   │   │   │   ├── Comparison/          # ComparisonEngine
+│   │   │   │   ├── Workflow/            # WorkflowManager
+│   │   │   │   └── UI/                  # UI controllers
+│   │   │   ├── Editor/                  # Assembly: AnkleSim.Editor
+│   │   │   ├── ScriptableObjects/       # Config assets
+│   │   │   ├── Prefabs/
+│   │   │   ├── Materials/
+│   │   │   ├── Scenes/
+│   │   │   └── StreamingAssets/
+│   │   │       └── SOFA/
+│   │   │           └── meshes/          # VTK volumetric meshes
+│   │   ├── Plugins/
+│   │   │   ├── x86_64/
+│   │   │   │   ├── SofaAnkleBridge.dll  # Our custom plugin
+│   │   │   │   ├── Sofa.Core.dll        # SOFA framework libs
+│   │   │   │   └── Sofa.Component.*.dll # SOFA component libs (~80 files)
+│   │   │   └── EzySlice/               # Mesh cutting library
+│   │   └── Tests/
+│   │       ├── EditMode/
+│   │       │   ├── Core/
+│   │       │   ├── Validation/
+│   │       │   └── Math/
+│   │       ├── PlayMode/
+│   │       │   ├── Integration/
+│   │       │   └── E2E/
+│   │       └── SOFA/                    # pytest-based SOFA scene tests
+│
+├── scripts/
+│   ├── build_native.sh                  # Build SofaAnkleBridge
+│   ├── deploy_dlls.sh                   # Copy all DLLs to Unity Plugins/
+│   └── collect_sofa_deps.sh             # Walk dependency tree for SOFA libs
+│
+└── docs/
 ```
 
 ---
 
-## Sprint 1: Core Data Models & Anatomy Loading (Week 2)
+## Sprint 1: Core Data Models & Anatomy Loading (Week 3)
 
 ### 1.1 Data Models (RED -> GREEN -> REFACTOR)
 
@@ -182,27 +322,26 @@ Assets/
 
 ---
 
-## Sprint 2: SOFA Bridge & Scene Construction (Week 3)
+## Sprint 2: SOFA Scene Construction & Mesh Sync (Week 4)
 
-### 2.1 SOFA Bridge Core (RED -> GREEN -> REFACTOR)
+### 2.1 Native Scene Construction (RED -> GREEN -> REFACTOR)
 
-**Tests (PlayMode):**
-```csharp
-// Tests/PlayMode/Integration/SofaBridgeTests.cs
-[UnityTest] public IEnumerator Initialize_WithValidConfig_IsInitializedTrue()
-[UnityTest] public IEnumerator Initialize_WithInvalidConfig_IsInitializedFalse()
-[UnityTest] public IEnumerator Step_AfterInit_CompletesWithoutError()
-[UnityTest] public IEnumerator Step_ReportsTimeInMs()
-[UnityTest] public IEnumerator Shutdown_ReleasesResources()
-[UnityTest] public IEnumerator Shutdown_CanReinitializeAfter()
+**Tests (C++ / Google Test):**
+```cpp
+// native/tests/test_scene_construction.cpp
+TEST(SceneBuilder, AddRigidBone_CreatesNodeWithRigidMechanicalObject)
+TEST(SceneBuilder, AddRigidBone_Fixed_HasFixedConstraint)
+TEST(SceneBuilder, AddRigidBone_Unfixed_HasNoFixedConstraint)
+TEST(SceneBuilder, AddDeformableTissue_HasTetrahedronFEMForceField)
+TEST(SceneBuilder, AddDeformableTissue_FEMHasCorrectYoungModulus)
+TEST(SceneBuilder, AddDeformableTissue_HasTetra2TriangleMapping)
+TEST(SceneBuilder, AddLigament_BilinearSpring_HasCorrectToeStiffness)
+TEST(SceneBuilder, AddLigament_BilinearSpring_HasCorrectLinearStiffness)
+TEST(SceneBuilder, AddRigidImplant_CreatesRigidNode)
+TEST(SceneBuilder, Finalize_InitializesAllNodes)
+TEST(SceneBuilder, Finalize_ThenStep_NoSolverDivergence)
+TEST(SceneBuilder, FullAnkleScene_1000Steps_Stable)
 ```
-
-**Implementation:**
-- `SofaBridge` MonoBehaviour wrapping SofaUnity API
-- `SimulationConfig` ScriptableObject
-- Init/Step/Shutdown lifecycle
-
-### 2.2 SOFA Scene Construction (RED -> GREEN -> REFACTOR)
 
 **Tests (SOFA / pytest):**
 ```python
@@ -213,8 +352,11 @@ def test_rigid_bone_creation():
 def test_deformable_tissue_creation():
     """Tissue node has TetrahedronFEMForceField with correct E and nu."""
 
-def test_ligament_creation():
-    """Ligament modeled as StiffSpringForceField with correct stiffness."""
+def test_bilinear_ligament_toe_region():
+    """Ligament at low strain uses toe stiffness, not linear stiffness."""
+
+def test_bilinear_ligament_linear_region():
+    """Ligament beyond toe threshold uses full linear stiffness."""
 
 def test_collision_pipeline():
     """Scene has FreeMotionAnimationLoop and GenericConstraintSolver."""
@@ -226,40 +368,72 @@ def test_material_properties():
     """Cortical bone E=17000 MPa, cartilage E=1.0 MPa as configured."""
 ```
 
+**Implementation (C++):**
+- `scene_builder.cpp` — `addRigidBone()`, `addDeformableTissue()`, `addLigament()`, `addRigidImplant()`
+- Root node: `FreeMotionAnimationLoop` + `GenericConstraintSolver` + collision pipeline
+- Rigid bones: `MechanicalObject<Rigid3d>` + `UniformMass` + optional `FixedConstraint` + collision sub-node with `RigidMapping`
+- Deformable tissue: `MechanicalObject<Vec3d>` + `SparseLDLSolver` + `TetrahedronFEMForceField` + `Tetra2TriangleTopologicalMapping` for collision surface
+- Ligaments: bilinear `StiffSpringForceField` with runtime stiffness modulation (toe region at strain < 3%, then linear)
+- `finalizeScene()` calls `sofa::simulation::init(root)` and validates scene graph
+
+### 2.2 C# Scene Construction API (RED -> GREEN -> REFACTOR)
+
 **Tests (PlayMode):**
 ```csharp
+// Tests/PlayMode/Integration/SofaBridgeTests.cs
 [UnityTest] public IEnumerator AddRigidBone_CreatesSOFANode()
 [UnityTest] public IEnumerator AddDeformableTissue_CreatesSOFANodeWithFEM()
-[UnityTest] public IEnumerator AddLigament_CreatesSpringBetweenBones()
+[UnityTest] public IEnumerator AddLigament_CreatesBilinearSpring()
+[UnityTest] public IEnumerator AddRigidImplant_CreatesRigidNode()
+[UnityTest] public IEnumerator FinalizeScene_CanStepAfterFinalize()
+[UnityTest] public IEnumerator FinalizeScene_CannotAddNodesAfterFinalize()
 ```
 
-**Implementation:**
-- `SofaBridge.AddRigidBone()`, `AddDeformableTissue()`, `AddLigament()`
-- SOFA scene graph construction from Unity parameters
-- Material property propagation from ScriptableObjects to SOFA Data fields
+**Implementation (C#):**
+- `SofaSimulation.AddRigidBone(RigidBoneDescriptor)` — marshals to `SofaRigidBoneConfig` and calls P/Invoke
+- `SofaSimulation.AddDeformableTissue(DeformableTissueDescriptor)` — marshals mesh path, material properties
+- `SofaSimulation.AddLigament(LigamentDescriptor)` — includes toe/linear stiffness and strain threshold
+- `SofaSimulation.AddRigidImplant(ImplantDescriptor)` — marshals vertex/triangle arrays
+- `SofaSimulation.FinalizeScene()` — validates configuration, calls native finalize
 
-**Requirements Covered:** REQ-INT-01, REQ-INT-06, REQ-INT-07, REQ-SIM-01, REQ-SIM-02, REQ-SIM-04
+**Requirements Covered:** REQ-INT-06, REQ-INT-07, REQ-SIM-01, REQ-SIM-02, REQ-SIM-04
 
 ### 2.3 Mesh Synchronization (RED -> GREEN -> REFACTOR)
 
+**Tests (C++ / Google Test):**
+```cpp
+// native/tests/test_data_transfer.cpp
+TEST(DataTransfer, GetPositions_ReturnsCorrectVertexCount)
+TEST(DataTransfer, GetPositions_AfterStep_PositionsChange)
+TEST(DataTransfer, GetChangedPositions_ReturnsOnlyMovedVertices)
+TEST(DataTransfer, GetFrameSnapshot_ReturnsAllFields)
+TEST(DataTransfer, DoubleBuffer_SwapIsAtomic)
+TEST(DataTransfer, TripleBuffer_SnapshotNeverTornRead)
+```
+
 **Tests (PlayMode):**
 ```csharp
+// Tests/PlayMode/Integration/MeshSyncTests.cs
 [UnityTest] public IEnumerator MeshSync_TransfersPositionsFromSOFA()
 [UnityTest] public IEnumerator MeshSync_SkipsSyncBelowThreshold()
 [UnityTest] public IEnumerator MeshSync_CompletesUnder2ms()
 [UnityTest] public IEnumerator MeshSync_HandlesTopologyChange()
+[UnityTest] public IEnumerator MeshSync_UsesAdvancedMeshAPI_NoGCAlloc()
+[UnityTest] public IEnumerator FrameSnapshot_SinglePInvokeCall_ReturnsAllData()
 ```
 
 **Implementation:**
-- Sparse vertex update (only changed vertices)
-- Performance-optimized transfer using NativeArray
-- Topology change handling for post-resection mesh updates
+- `data_transfer.cpp` — double-buffered position arrays, triple-buffered frame snapshot
+- `SofaMeshTransfer.cs` — Burst-compiled `ApplyPositionsJob` and `ApplySparsePositionsJob`
+- `SofaFrameSnapshot` struct mirrored in C# for single-call per-frame readback
+- Advanced Mesh API (`Mesh.SetVertexBufferData` with `NativeArray`) for topology changes
+- Reader-count guard on mesh double buffer to prevent torn reads
 
-**Requirements Covered:** REQ-INT-02, REQ-PERF-05
+**Requirements Covered:** REQ-INT-02, REQ-INT-04, REQ-PERF-05
 
 ---
 
-## Sprint 3: ROM Engine (Week 4)
+## Sprint 3: ROM Engine (Week 5)
 
 ### 3.1 Angle Measurement (RED -> GREEN -> REFACTOR)
 
@@ -273,11 +447,22 @@ def test_material_properties():
 [Test] public void CalculateInversion_At35Degrees_Returns35()
 [Test] public void AngleFromQuaternion_IdentityRotation_ReturnsZero()
 [Test] public void AngleFromQuaternion_KnownRotation_ReturnsCorrectAngle()
+[Test] public void RelativeOrientation_TibiaToTalus_DecomposesCorrectly()
+```
+
+**Tests (C++ / Google Test):**
+```cpp
+// native/tests/test_joint_angle.cpp
+TEST(JointAngle, RelativeOrientation_IdentityBodies_ReturnsZero)
+TEST(JointAngle, RelativeOrientation_KnownRotation_ReturnsCorrectEuler)
+TEST(JointAngle, DorsiflexionAxis_MatchesAnatomicalConvention)
 ```
 
 **Implementation:**
 - `AngleMath` utility class (quaternion decomposition into anatomical axes)
-- Pure math, no SOFA dependency
+- Joint angle computed from relative orientation of talus w.r.t. tibia rigid bodies
+- C++ side: `getJointAngle()` computes from two `MechanicalObject<Rigid3d>` positions
+- C# side: `AngleMath` for UI/recording, `SofaFrameSnapshot` for live values
 
 ### 3.2 ROM Engine Core (RED -> GREEN -> REFACTOR)
 
@@ -295,6 +480,9 @@ def test_material_properties():
 **Tests (SOFA / pytest):**
 ```python
 # Tests/SOFA/test_rom_simulation.py
+def test_emergent_joint_angle_at_neutral():
+    """Tibia-talus relative angle is ~0 at neutral with ligament constraints."""
+
 def test_preop_rom_dorsiflexion():
     """Pre-op DF with arthritic constraints produces 5-10 degrees."""
 
@@ -312,19 +500,22 @@ def test_rom_improvement():
 
 def test_ligament_stiffness_affects_rom():
     """Stiffer ligaments reduce ROM; looser ligaments increase ROM."""
+
+def test_bilinear_ligament_toe_region_increases_rom():
+    """Toe region in ligament model allows slightly more ROM than pure linear."""
 ```
 
 **Implementation:**
-- `ROMEngine` MonoBehaviour
-- Integration with SofaBridge for joint constraint configuration
-- Force/torque readback via SofaBridge
-- Recording and analysis
+- `ROMEngine` MonoBehaviour reads angles from `SofaFrameSnapshot`
+- ROM sweep driven by `ConstantForceField` applied to talus via `sofa_apply_joint_torque()`
+- Emergent joint model: tibia (fixed rigid), talus (free rigid), constrained by bilinear ligament springs + bone-bone contact
+- Recording and analysis stored in `ROMRecord`
 
 **Requirements Covered:** REQ-ROM-01 through REQ-ROM-08, REQ-SIM-06, REQ-SIM-07, REQ-SIM-09
 
 ---
 
-## Sprint 4: Resection Engine (Week 5)
+## Sprint 4: Resection Engine (Week 6)
 
 ### 4.1 Cut Plane Geometry (RED -> GREEN -> REFACTOR)
 
@@ -344,27 +535,36 @@ def test_ligament_stiffness_affects_rom():
 - `CutPlaneController` (plane positioning math)
 - Volume estimation from mesh geometry
 
-### 4.2 Mesh Cutting via EzySlice (RED -> GREEN -> REFACTOR)
+### 4.2 Dual-Representation Resection (RED -> GREEN -> REFACTOR)
+
+**Tests (C++ / Google Test):**
+```cpp
+// native/tests/test_resection.cpp
+TEST(Resection, CentroidBased_RemovesCorrectTetrahedra)
+TEST(Resection, CentroidBased_SmoothCutBoundary)
+TEST(Resection, TopologyChanged_FlagSetAfterCut)
+TEST(Resection, GetSurfaceMesh_ReturnsUpdatedSurface)
+TEST(Resection, Resection_PreservesBoundaryConditions)
+TEST(Resection, Resection_CollisionModelRemainsValid)
+```
 
 **Tests (PlayMode):**
 ```csharp
 // Tests/PlayMode/Integration/ResectionEngineTests.cs
-[UnityTest] public IEnumerator ExecuteCut_ProducesProximalAndDistalFragments()
-[UnityTest] public IEnumerator ExecuteCut_PreservesMeshIntegrity_NoOpenEdges()
+[UnityTest] public IEnumerator ExecuteCut_EzySlice_ProducesCleanVisualCut()
+[UnityTest] public IEnumerator ExecuteCut_SOFA_RemovesTetrahedra()
+[UnityTest] public IEnumerator ExecuteCut_DualRepresentation_BothComplete()
 [UnityTest] public IEnumerator ExecuteCut_CompletesUnder500ms()
 [UnityTest] public IEnumerator PreviewCut_ShowsIntersectionContour()
-[UnityTest] public IEnumerator Undo_RestoresOriginalMesh()
-[UnityTest] public IEnumerator Redo_ReappliesCut()
+[UnityTest] public IEnumerator Undo_RebuildsSofaScene_RestoresOriginalMesh()
 [UnityTest] public IEnumerator SafetyCheck_WarnsWhenNearMalleolus()
 ```
-
-### 4.3 SOFA Topology Update (RED -> GREEN -> REFACTOR)
 
 **Tests (SOFA / pytest):**
 ```python
 # Tests/SOFA/test_resection.py
-def test_resection_removes_tetrahedra():
-    """Cut plane removes correct tetrahedra from topology."""
+def test_centroid_resection_removes_tetrahedra():
+    """Cut plane removes tetrahedra whose centroids are below the plane."""
 
 def test_resection_updates_surface():
     """Tetra2TriangleTopologicalMapping updates surface after cut."""
@@ -376,23 +576,18 @@ def test_resection_preserves_boundary_conditions():
     """Fixed constraints still apply after resection."""
 ```
 
-**Tests (PlayMode):**
-```csharp
-[UnityTest] public IEnumerator ExecuteResection_UpdatesSOFATopology()
-[UnityTest] public IEnumerator ExecuteResection_SyncsMeshBackToUnity()
-```
-
 **Implementation:**
-- `ResectionEngine` MonoBehaviour
-- EzySlice integration for visual cutting
-- SOFA topology modification via SofaBridge
-- Undo/redo stack (stores pre-cut mesh snapshots)
+- **Visual cut:** EzySlice plane cut on Unity mesh (instant, clean geometry)
+- **Physics cut:** SOFA centroid-based tetrahedral removal via `sofa_execute_resection()`
+- `ResectionEngine` drives both representations from a single cut command
+- **Undo:** Rebuilds entire SOFA scene from cached configuration (simpler and more robust than SOFA topology undo)
+- Topology change triggers full mesh rebuild via `sofa_get_surface_mesh()` + Advanced Mesh API
 
 **Requirements Covered:** REQ-RES-01 through REQ-RES-09, REQ-PERF-03
 
 ---
 
-## Sprint 5: Implant System (Week 6)
+## Sprint 5: Implant System (Week 7)
 
 ### 5.1 Implant Library & Data (RED -> GREEN -> REFACTOR)
 
@@ -439,13 +634,13 @@ def test_resection_preserves_boundary_conditions():
 - Interactive 6-DOF positioning (translation + rotation handles)
 - Alignment metric calculation from implant transform relative to bone axis
 - Coverage calculation (ray casting from implant onto bone surface)
-- SOFA rigid body registration
+- SOFA rigid body registration via `SofaSimulation.AddRigidImplant()`
 
 **Requirements Covered:** REQ-IMP-01 through REQ-IMP-09
 
 ---
 
-## Sprint 6: Post-Op ROM & Comparison (Week 7)
+## Sprint 6: Post-Op ROM & Comparison (Week 8)
 
 ### 6.1 Post-Op ROM (RED -> GREEN -> REFACTOR)
 
@@ -470,8 +665,9 @@ def test_implant_contact_forces():
 ```
 
 **Implementation:**
-- Reuse ROMEngine with post-op SOFA scene (includes implant nodes)
-- Implant articulation surface contact via SOFA collision
+- Reuse ROMEngine with post-op SOFA scene (includes implant rigid body nodes)
+- Implant articulation surface contact via SOFA collision pipeline
+- Scene is rebuilt with implant nodes after placement is finalized
 
 ### 6.2 Comparison Engine (RED -> GREEN -> REFACTOR)
 
@@ -496,7 +692,7 @@ def test_implant_contact_forces():
 
 ---
 
-## Sprint 7: UI & Workflow Integration (Week 8)
+## Sprint 7: UI & Workflow Integration (Week 9)
 
 ### 7.1 Workflow State Machine (RED -> GREEN -> REFACTOR)
 
@@ -538,7 +734,7 @@ def test_implant_contact_forces():
 
 ---
 
-## Sprint 8: End-to-End Integration & Validation (Week 9)
+## Sprint 8: End-to-End Integration & Validation (Week 10)
 
 ### 8.1 E2E Workflow Tests (RED -> GREEN -> REFACTOR)
 
@@ -547,10 +743,10 @@ def test_implant_contact_forces():
 // Tests/PlayMode/E2E/FullWorkflowTests.cs
 [UnityTest] public IEnumerator FullWorkflow_LoadThroughComparison_Completes()
 {
-    // 1. Init -> Load anatomy
+    // 1. Init -> Load anatomy -> Construct SOFA scene
     // 2. Pre-Op ROM -> record ~25deg total arc
-    // 3. Resection -> tibial cut 5mm, talar cut 2mm
-    // 4. Implant -> place STAR size 3, PE 8mm
+    // 3. Resection -> tibial cut 5mm (EzySlice visual + SOFA physics)
+    // 4. Implant -> place STAR size 3, PE 8mm -> register in SOFA
     // 5. Post-Op ROM -> record ~40deg total arc
     // 6. Compare -> improvement ~15deg
 }
@@ -558,7 +754,7 @@ def test_implant_contact_forces():
 [UnityTest] public IEnumerator FullWorkflow_FrameRateAbove30fps()
 [UnityTest] public IEnumerator FullWorkflow_SOFAStepUnder20ms()
 [UnityTest] public IEnumerator FullWorkflow_ResectionUnder500ms()
-[UnityTest] public IEnumerator FullWorkflow_UndoResection_RestoresState()
+[UnityTest] public IEnumerator FullWorkflow_UndoResection_RebuildsSofaScene()
 ```
 
 ### 8.2 Biomechanical Validation
@@ -590,18 +786,33 @@ def test_implant_contact_pressure():
 [UnityTest] public IEnumerator Performance_SOFAStepBelow20ms()
 [UnityTest] public IEnumerator Performance_MeshSyncBelow2ms()
 [UnityTest] public IEnumerator Performance_MemoryBelow4GB()
+[UnityTest] public IEnumerator Performance_PInvokeCalls_Under10PerFrame()
 ```
+
+### 8.4 Native Bridge Profiling
+
+**Tests (PlayMode):**
+```csharp
+[UnityTest] public IEnumerator Profiling_FEMSolveTime_Reported()
+[UnityTest] public IEnumerator Profiling_CollisionTime_Reported()
+[UnityTest] public IEnumerator Profiling_ConstraintIterations_Reported()
+```
+
+**Implementation:**
+- `SofaProfilingData` struct returned via `sofa_get_profiling_data()`
+- Feed into Unity Profiler as custom `ProfilerMarker` entries
 
 **Requirements Covered:** REQ-PERF-01 through REQ-PERF-07, REQ-SIM-09
 
 ---
 
-## Sprint 9: Polish, Documentation & Packaging (Week 10)
+## Sprint 9: Polish, Documentation & Packaging (Week 11)
 
 ### 9.1 Bug Fixes & Edge Cases
 - Address all failing tests from Sprint 8
 - Handle edge cases: degenerate meshes, solver instability, extreme parameter values
-- Error recovery for SOFA divergence
+- Error recovery for SOFA divergence (detect via `SofaFrameSnapshot.solver_diverged`, pause simulation, notify user)
+- Scene rebuild recovery (destroy + recreate SOFA scene on critical errors)
 
 ### 9.2 Asset Pipeline Finalization
 - Replace placeholder implant meshes with accurate geometry
@@ -610,7 +821,8 @@ def test_implant_contact_pressure():
 
 ### 9.3 Build & Distribution
 - Create standalone build (Windows/Linux)
-- Verify SOFA DLLs bundle correctly
+- Run `collect_sofa_deps.sh` to bundle all SOFA DLLs
+- Test deployment on clean machines (no SOFA installed)
 - Test on target hardware configurations
 - Create user-facing documentation
 
@@ -618,18 +830,18 @@ def test_implant_contact_pressure():
 
 ## Test Execution Summary
 
-| Sprint | EditMode Tests | PlayMode Tests | SOFA Tests | Total |
-|--------|---------------|----------------|------------|-------|
-| 0 | 0 | 4 | 0 | 4 |
-| 1 | 16 | 6 | 0 | 22 |
-| 2 | 0 | 10 | 5 | 15 |
-| 3 | 7 | 6 | 6 | 19 |
-| 4 | 7 | 7 | 4 | 18 |
-| 5 | 12 | 4 | 0 | 16 |
-| 6 | 7 | 3 | 3 | 13 |
-| 7 | 7 | 4 | 0 | 11 |
-| 8 | 0 | 4+4 | 5 | 13 |
-| **Total** | **56** | **52** | **23** | **131** |
+| Sprint | EditMode Tests | PlayMode Tests | C++ Tests | SOFA Tests | Total |
+|--------|---------------|----------------|-----------|------------|-------|
+| 0 | 0 | 8 | 8 | 0 | 16 |
+| 1 | 16 | 6 | 0 | 0 | 22 |
+| 2 | 0 | 6 | 6+6 | 7 | 25 |
+| 3 | 8 | 6 | 3 | 8 | 25 |
+| 4 | 7 | 7 | 6 | 4 | 24 |
+| 5 | 12 | 4 | 0 | 0 | 16 |
+| 6 | 7 | 3 | 0 | 3 | 13 |
+| 7 | 7 | 4 | 0 | 0 | 11 |
+| 8 | 0 | 4+4+1+3 | 0 | 5 | 17 |
+| **Total** | **57** | **56** | **29** | **27** | **169** |
 
 ---
 
@@ -640,34 +852,69 @@ def test_implant_contact_pressure():
 on: [push, pull_request]
 
 jobs:
+  native-build:
+    runs-on: ubuntu-latest  # also windows-latest
+    steps:
+      - Checkout
+      - Install SOFA v25.12 (from pre-built binaries or Docker image)
+      - Build SofaAnkleBridge: cmake --build native/build
+      - Run native tests: ctest --test-dir native/build
+      - Upload SofaAnkleBridge.dll/.so as artifact
+
   unity-tests:
-    - Checkout
-    - Activate Unity license
-    - Run EditMode tests: unity-test-runner -testPlatform EditMode
-    - Run PlayMode tests: unity-test-runner -testPlatform PlayMode
-    - Upload test results
+    needs: [native-build]
+    steps:
+      - Checkout
+      - Download native plugin artifact
+      - Deploy DLLs to Assets/Plugins/x86_64/
+      - Activate Unity license
+      - Run EditMode tests: unity-test-runner -testPlatform EditMode
+      - Run PlayMode tests: unity-test-runner -testPlatform PlayMode
+      - Upload test results
 
   sofa-tests:
-    - Checkout
-    - Install SOFA + SofaPython3
-    - Run pytest Tests/SOFA/
-    - Upload test results
+    steps:
+      - Checkout
+      - Install SOFA + SofaPython3
+      - Run pytest Tests/SOFA/
+      - Upload test results
 
   build:
-    needs: [unity-tests, sofa-tests]
-    - Build standalone player (Win64)
-    - Upload artifact
+    needs: [native-build, unity-tests, sofa-tests]
+    steps:
+      - Build standalone player (Win64)
+      - Run collect_sofa_deps.sh to bundle all DLLs
+      - Upload artifact
 ```
 
 ---
 
 ## Risk Mitigation
 
-| Risk | Mitigation | Sprint |
-|------|-----------|--------|
-| SofaUnity DLLs incompatible with Unity 6 | Test in Sprint 0; fallback to ZMQ bridge | 0 |
-| SOFA solver divergence with ankle parameters | Validate material properties in isolated SOFA tests first | 2, 3 |
-| EzySlice produces non-manifold meshes | Post-cut mesh validation; fallback to manual cutting algorithm | 4 |
-| Real-time performance insufficient | Profile early (Sprint 2); reduce mesh resolution, increase SOFA timestep | 2-8 |
-| Implant meshes unavailable | Use parametric placeholder geometry; replace when assets available | 5 |
-| Clinical validation gap | Partner with orthopedic surgeon for parameter review at Sprint 3 and 8 | 3, 8 |
+| Risk | Severity | Mitigation | Sprint |
+|------|----------|-----------|--------|
+| SOFA C++ API breaks between versions | High | Pin to SOFA v25.12; version handshake in `sofa_bridge_init()`; CI tests catch regressions | 0 |
+| DLL dependency hell (~80 SOFA libs) | High | Automated `collect_sofa_deps.sh` script; test deployment on clean machine in CI | 0, 9 |
+| Thread safety bugs in async stepping | High | Single-mutex model; triple-buffer for snapshots; extensive threading tests under TSAN | 0, 2 |
+| SOFA solver divergence with ankle params | Medium | Validate material properties in isolated SOFA tests first; divergence detection in snapshot | 2, 3 |
+| Topology changes crash SOFA | Medium | Wrap all topology ops in try/catch; centroid-based removal is conservative; scene rebuild as recovery | 4 |
+| CMake/SOFA build complexity | Medium | Docker-based CI build; pre-built SOFA binaries as fallback; build docs in README | 0 |
+| Unity editor DLL locking | Medium | Native plugin requires editor restart for updates; document workflow; consider IL2CPP for release | 0 |
+| EzySlice produces non-manifold meshes | Medium | Post-cut mesh validation; dual-representation means SOFA physics isn't affected by visual mesh issues | 4 |
+| Real-time performance insufficient | Medium | Profile early (Sprint 2); use `SofaProfilingData` to identify bottlenecks; reduce mesh resolution or increase timestep | 2-8 |
+| Implant meshes unavailable | Low | Use parametric placeholder geometry; replace when assets available | 5 |
+| Clinical validation gap | Medium | Partner with orthopedic surgeon for parameter review at Sprint 3 and 8 | 3, 8 |
+| Platform differences (Windows/Linux) | Medium | CI builds on both platforms; abstract platform paths in build scripts | 0, 9 |
+
+---
+
+## Architecture Decision Updates
+
+The following architectural decisions from doc 06 are superseded by the custom integration approach:
+
+| Original Decision | Updated Decision | Rationale |
+|-------------------|-----------------|-----------|
+| **AD-01:** SofaUnity in-process plugin | **AD-01 (rev):** Custom C++ native plugin (SofaAnkleBridge) | Full API control, no third-party dependency, optimized data paths |
+| REQ-INT-01: SofaUnity via P/Invoke | **REQ-INT-01 (rev):** Custom bridge DLL via P/Invoke with domain-specific C API | Same P/Invoke mechanism, our own API surface |
+
+All other architectural decisions (AD-02 through AD-05) remain unchanged.
