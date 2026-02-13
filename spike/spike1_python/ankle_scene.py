@@ -8,10 +8,14 @@ Emergent joint model:
     (StiffSpringForceField has cross-mapping force propagation issues)
   - Joint angle: relative quaternion decomposition of talus w.r.t. tibia
 
-Uses simple geometric collision meshes (boxes) instead of real bone geometry.
+Supports two mesh modes:
+  - "box": simple geometric boxes (fast, default)
+  - "stl": real BodyParts3D bone STL meshes (anatomically accurate)
+
 Validated against SOFA v24.06.00.
 """
 import math
+import os
 import numpy as np
 
 import Sofa.Core
@@ -25,7 +29,6 @@ import Sofa.Simulation
 # Ligament properties: attachment points in local frame of each bone.
 # Rest lengths computed from initial geometry so springs start at rest.
 # Stiffness values are approximate (N/mm).
-# Simplified to 3 key ligaments for the spike.
 #
 # Geometry:
 #   Tibia at origin, talus centered 30mm below (z=-30).
@@ -34,27 +37,42 @@ import Sofa.Simulation
 #   Gap between boxes: 3mm (within contact distance=3mm).
 #   Ligaments span from tibia inferior to talus superior.
 #
+# Coordinate convention:
+#   X = medial-lateral, Y = anterior(+)-posterior(-), Z = proximal(+)-distal(-)
+#
+# For sagittal plane rotation (DF/PF = rotation about X):
+#   - Anterior ligaments (Y>0) resist plantarflexion
+#   - Posterior ligaments (Y<0) resist dorsiflexion
+# Both directions must have ligament resistance for bounded ROM.
+#
 DEFAULT_LIGAMENTS = [
     {
-        "name": "ATFL",  # Anterior talofibular (lateral-anterior)
-        "tibia_offset": [15.0, -10.0, -14.0],   # near bottom of tibia, lateral
-        "talus_offset": [12.0, -8.0, 11.0],      # near top of talus, lateral
+        "name": "ATFL",  # Anterior talofibular (anterior-lateral)
+        "tibia_offset": [15.0, 10.0, -14.0],
+        "talus_offset": [12.0, 8.0, 11.0],
         "stiffness": 70.0,     # N/mm
-        "damping": 1.0,
+        "damping": 5.0,        # N·s/mm
     },
     {
-        "name": "CFL",   # Calcaneofibular (lateral)
-        "tibia_offset": [5.0, -14.0, -14.0],    # bottom of tibia, lateral
-        "talus_offset": [3.0, -12.0, 11.0],      # top of talus, lateral
-        "stiffness": 40.0,
-        "damping": 1.0,
+        "name": "PTFL",  # Posterior talofibular (posterior-lateral)
+        "tibia_offset": [15.0, -10.0, -14.0],
+        "talus_offset": [12.0, -8.0, 11.0],
+        "stiffness": 50.0,
+        "damping": 5.0,
     },
     {
-        "name": "Deltoid",  # Medial (simplified single band)
-        "tibia_offset": [-12.0, -5.0, -14.0],   # bottom of tibia, medial
-        "talus_offset": [-10.0, -3.0, 11.0],     # top of talus, medial
+        "name": "Deltoid_ant",  # Anterior deltoid (anterior-medial)
+        "tibia_offset": [-12.0, 10.0, -14.0],
+        "talus_offset": [-10.0, 8.0, 11.0],
         "stiffness": 90.0,
-        "damping": 1.0,
+        "damping": 5.0,
+    },
+    {
+        "name": "Deltoid_post",  # Posterior deltoid (posterior-medial)
+        "tibia_offset": [-12.0, -10.0, -14.0],
+        "talus_offset": [-10.0, -8.0, 11.0],
+        "stiffness": 90.0,
+        "damping": 5.0,
     },
 ]
 
@@ -108,15 +126,127 @@ def _box_vertices_and_triangles(half_extents):
 
 
 # ---------------------------------------------------------------------------
+# STL mesh loading
+# ---------------------------------------------------------------------------
+
+# Default mesh directory (relative to this file)
+_DEFAULT_MESH_DIR = os.path.join(os.path.dirname(__file__), "meshes")
+
+# Ligament attachment points for real bone geometry (offsets from rigid body origin).
+# Computed from BodyParts3D mesh bounds after joint-center normalization.
+# These are approximate anatomical positions on the bone surfaces.
+STL_LIGAMENTS = [
+    {
+        "name": "ATFL",
+        "tibia_offset": [25.0, 20.0, -3.0],    # anterior-lateral, distal tibia
+        "talus_offset": [12.0, 15.0, 4.0],      # anterior-lateral, talus dome
+        "stiffness": 70.0,
+        "damping": 5.0,
+    },
+    {
+        "name": "PTFL",
+        "tibia_offset": [25.0, -25.0, -3.0],   # posterior-lateral, distal tibia
+        "talus_offset": [12.0, -15.0, 4.0],     # posterior-lateral, talus dome
+        "stiffness": 50.0,
+        "damping": 5.0,
+    },
+    {
+        "name": "Deltoid_ant",
+        "tibia_offset": [-25.0, 20.0, -3.0],   # anterior-medial, distal tibia
+        "talus_offset": [-12.0, 15.0, 4.0],     # anterior-medial, talus dome
+        "stiffness": 90.0,
+        "damping": 5.0,
+    },
+    {
+        "name": "Deltoid_post",
+        "tibia_offset": [-25.0, -25.0, -3.0],  # posterior-medial, distal tibia
+        "talus_offset": [-12.0, -15.0, 4.0],    # posterior-medial, talus dome
+        "stiffness": 90.0,
+        "damping": 5.0,
+    },
+]
+
+
+def load_bone_meshes(mesh_dir=None, collision_faces=2000, tibia_trim_height=80.0):
+    """
+    Load and prepare tibia/talus STL meshes for SOFA simulation.
+
+    Normalizes coordinates so the ankle joint center is at the world origin,
+    trims the tibia to just the distal portion, and decimates for collision.
+
+    Args:
+        mesh_dir: Directory containing tibia_right.stl and talus_right.stl.
+        collision_faces: Target face count for collision mesh decimation.
+        tibia_trim_height: Keep only the bottom N mm of the tibia (from distal end).
+
+    Returns:
+        dict with keys:
+            tibia_verts, tibia_tris: collision mesh for tibia
+            talus_verts, talus_tris: collision mesh for talus
+            joint_center: [x, y, z] of the original joint center (before normalization)
+            tibia_centroid: centroid of normalized tibia mesh
+            talus_centroid: centroid of normalized talus mesh
+    """
+    import trimesh
+
+    if mesh_dir is None:
+        mesh_dir = _DEFAULT_MESH_DIR
+
+    tibia_mesh = trimesh.load(os.path.join(mesh_dir, "tibia_right.stl"))
+    talus_mesh = trimesh.load(os.path.join(mesh_dir, "talus_right.stl"))
+
+    # Joint center: midpoint between tibia distal surface and talus dome
+    tibia_distal_z = tibia_mesh.bounds[0][2]  # Z min of tibia
+    talus_dome_z = talus_mesh.bounds[1][2]    # Z max of talus
+    joint_center_z = (tibia_distal_z + talus_dome_z) / 2.0
+
+    # XY center: average of both bone centroids
+    joint_center_x = (tibia_mesh.centroid[0] + talus_mesh.centroid[0]) / 2.0
+    joint_center_y = (tibia_mesh.centroid[1] + talus_mesh.centroid[1]) / 2.0
+    joint_center = np.array([joint_center_x, joint_center_y, joint_center_z])
+
+    # Translate both meshes so joint center is at origin
+    tibia_mesh.apply_translation(-joint_center)
+    talus_mesh.apply_translation(-joint_center)
+
+    # Trim tibia to distal portion only
+    tibia_distal_z_norm = tibia_mesh.bounds[0][2]
+    z_cutoff = tibia_distal_z_norm + tibia_trim_height
+    # Keep only vertices below z_cutoff (select faces where all vertices are below)
+    mask = np.all(tibia_mesh.vertices[tibia_mesh.faces][:, :, 2] < z_cutoff, axis=1)
+    tibia_mesh = tibia_mesh.submesh([mask], append=True)
+
+    # Decimate both meshes for collision detection performance
+    if len(tibia_mesh.faces) > collision_faces:
+        tibia_mesh = tibia_mesh.simplify_quadric_decimation(collision_faces)
+    if len(talus_mesh.faces) > collision_faces:
+        talus_mesh = talus_mesh.simplify_quadric_decimation(collision_faces)
+
+    return {
+        "tibia_verts": tibia_mesh.vertices.tolist(),
+        "tibia_tris": tibia_mesh.faces.tolist(),
+        "talus_verts": talus_mesh.vertices.tolist(),
+        "talus_tris": talus_mesh.faces.tolist(),
+        "joint_center": joint_center.tolist(),
+        "tibia_centroid": tibia_mesh.centroid.tolist(),
+        "talus_centroid": talus_mesh.centroid.tolist(),
+        "tibia_faces": len(tibia_mesh.faces),
+        "talus_faces": len(talus_mesh.faces),
+    }
+
+
+# ---------------------------------------------------------------------------
 # Bilinear ligament controller
 # ---------------------------------------------------------------------------
 
 class LigamentForceController(Sofa.Core.Controller):
     """
-    Applies ligament spring forces directly to rigid body velocities.
+    Computes ligament spring forces and writes them to a ConstantForceField.
 
     Uses a Python controller instead of StiffSpringForceField to avoid
     cross-mapping force propagation issues (known SOFA limitation).
+    Forces are written to a ConstantForceField so the EulerImplicit solver
+    integrates them properly (direct velocity modification gets overwritten).
 
     Supports bilinear stiffness: below toe_strain, uses reduced stiffness.
     """
@@ -126,11 +256,10 @@ class LigamentForceController(Sofa.Core.Controller):
         self.ligament_configs = kwargs.get("ligament_configs", [])
         self.tibia_mo = kwargs.get("tibia_mo")
         self.talus_mo = kwargs.get("talus_mo")
+        self.ligament_ff = kwargs.get("ligament_ff")  # ConstantForceField to write to
         self.bilinear = kwargs.get("bilinear", False)
         self.toe_strain = kwargs.get("toe_strain", 0.03)
         self.toe_ratio = kwargs.get("toe_ratio", 0.2)
-        self.dt = kwargs.get("dt", 0.001)
-        self.talus_mass = kwargs.get("talus_mass", 0.1)
 
     def onAnimateBeginEvent(self, event):
         tibia_pos = np.array(self.tibia_mo.position.value[0][:3])
@@ -160,9 +289,13 @@ class LigamentForceController(Sofa.Core.Controller):
             rest_length = config["rest_length"]
             extension = current_length - rest_length
 
+            # Only apply tensile forces (ligaments don't resist compression)
+            if extension <= 0:
+                continue
+
             # Stiffness (bilinear or linear)
             linear_k = config["stiffness"]
-            if self.bilinear and extension > 0:
+            if self.bilinear:
                 strain = extension / rest_length
                 if strain < self.toe_strain:
                     effective_k = linear_k * self.toe_ratio
@@ -171,14 +304,14 @@ class LigamentForceController(Sofa.Core.Controller):
             else:
                 effective_k = linear_k
 
-            # Spring force: F = k * extension * direction + damping
-            damping = config.get("damping", 1.0)
+            # Spring force: F = k * extension * direction
             spring_force = effective_k * extension * direction
 
-            # Damping (velocity-based, approximate)
+            # Velocity-based damping along spring axis
+            damping = config.get("damping", 1.0)
             talus_vel = np.array(self.talus_mo.velocity.value[0][:3])
-            vel_along_spring = np.dot(talus_vel, direction)
-            damping_force = -damping * vel_along_spring * direction
+            vel_along = np.dot(talus_vel, direction)
+            damping_force = -damping * vel_along * direction
 
             force = spring_force + damping_force
             total_force += force
@@ -187,21 +320,12 @@ class LigamentForceController(Sofa.Core.Controller):
             r = talus_attach - talus_pos
             total_torque += np.cross(r, force)
 
-        # Apply force and torque to talus via velocity update
-        # F = m * a → dv = F/m * dt
-        # τ = I * α → dω = τ/I * dt (approximate I as sphere)
-        with self.talus_mo.velocity.writeable() as vel:
-            # Linear velocity update
-            dv = total_force / self.talus_mass * self.dt
-            vel[0][:3] = [vel[0][0] + dv[0], vel[0][1] + dv[1], vel[0][2] + dv[2]]
-
-            # Angular velocity update (approximate moment of inertia)
-            # For a 100g box: I ≈ 1/12 * m * (w² + h²) ≈ 50 kg·mm²
-            I_approx = self.talus_mass * (18.0**2 + 12.0**2) / 12.0  # kg·mm²
-            dw = total_torque / I_approx * self.dt
-            vel[0][3] = vel[0][3] + dw[0]
-            vel[0][4] = vel[0][4] + dw[1]
-            vel[0][5] = vel[0][5] + dw[2]
+        # Write computed force to ConstantForceField for solver integration
+        with self.ligament_ff.forces.writeable() as w:
+            w[0] = [
+                total_force[0], total_force[1], total_force[2],
+                total_torque[0], total_torque[1], total_torque[2],
+            ]
 
 
 # ---------------------------------------------------------------------------
@@ -275,6 +399,9 @@ def create_ankle_scene(
     toe_strain=0.03,
     toe_ratio=0.2,
     ligaments=None,
+    mesh_mode="box",
+    mesh_dir=None,
+    collision_faces=2000,
 ):
     """
     Create a SOFA scene with a minimal ankle joint model.
@@ -287,15 +414,37 @@ def create_ankle_scene(
         bilinear: If True, use bilinear ligament model (toe + linear).
         toe_strain: Strain threshold for toe region (bilinear only).
         toe_ratio: Ratio of toe stiffness to linear stiffness (bilinear only).
-        ligaments: Custom ligament configs (default: DEFAULT_LIGAMENTS).
+        ligaments: Custom ligament configs. Default depends on mesh_mode:
+                   DEFAULT_LIGAMENTS for "box", STL_LIGAMENTS for "stl".
+        mesh_mode: "box" for simple geometric boxes, "stl" for real bone meshes.
+        mesh_dir: Directory containing STL files (only used if mesh_mode="stl").
+        collision_faces: Target face count for STL decimation.
 
     Returns:
         (root, info) where info contains references to key scene components.
     """
     if gravity is None:
         gravity = [0, 0, -9810]
-    if ligaments is None:
-        ligaments = DEFAULT_LIGAMENTS
+
+    # Select mesh data and ligament defaults based on mesh_mode
+    if mesh_mode == "stl":
+        mesh_data = load_bone_meshes(mesh_dir=mesh_dir, collision_faces=collision_faces)
+        t_verts = mesh_data["tibia_verts"]
+        t_tris = mesh_data["tibia_tris"]
+        a_verts = mesh_data["talus_verts"]
+        a_tris = mesh_data["talus_tris"]
+        # Both rigid bodies at origin — mesh vertices define world position
+        tibia_position = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        talus_position = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]
+        if ligaments is None:
+            ligaments = STL_LIGAMENTS
+    else:
+        t_verts, t_tris = _box_vertices_and_triangles(TIBIA_BOX_HALF)
+        a_verts, a_tris = _box_vertices_and_triangles(TALUS_BOX_HALF)
+        tibia_position = TIBIA_POSITION
+        talus_position = TALUS_POSITION
+        if ligaments is None:
+            ligaments = DEFAULT_LIGAMENTS
 
     root = Sofa.Core.Node("root")
     root.gravity = gravity
@@ -338,7 +487,7 @@ def create_ankle_scene(
     tibia_mo = tibia.addObject(
         "MechanicalObject",
         template="Rigid3d",
-        position=[TIBIA_POSITION],
+        position=[tibia_position],
     )
     tibia.addObject("UniformMass", totalMass=1.0)
     tibia.addObject("FixedConstraint", indices=[0])
@@ -346,7 +495,6 @@ def create_ankle_scene(
 
     # Tibia collision sub-node
     tibia_col = tibia.addChild("Collision")
-    t_verts, t_tris = _box_vertices_and_triangles(TIBIA_BOX_HALF)
     tibia_col.addObject(
         "MeshTopology",
         position=t_verts,
@@ -369,14 +517,13 @@ def create_ankle_scene(
     talus_mo = talus.addObject(
         "MechanicalObject",
         template="Rigid3d",
-        position=[TALUS_POSITION],
+        position=[talus_position],
     )
     talus.addObject("UniformMass", totalMass=0.1)  # ~100g talus
     talus.addObject("UncoupledConstraintCorrection")
 
     # Talus collision sub-node
     talus_col = talus.addChild("Collision")
-    a_verts, a_tris = _box_vertices_and_triangles(TALUS_BOX_HALF)
     talus_col.addObject(
         "MeshTopology",
         position=a_verts,
@@ -394,8 +541,8 @@ def create_ankle_scene(
     # We use a Python controller that directly applies spring forces to the
     # rigid body velocity, which is more robust.
 
-    tibia_pos_arr = np.array(TIBIA_POSITION[:3])
-    talus_pos_arr = np.array(TALUS_POSITION[:3])
+    tibia_pos_arr = np.array(tibia_position[:3])
+    talus_pos_arr = np.array(talus_position[:3])
 
     scaled_ligaments = []
     ligament_names = []
@@ -415,22 +562,16 @@ def create_ankle_scene(
         scaled_ligaments.append(scaled_lig)
         ligament_names.append(lig["name"])
 
-    controller = root.addObject(
-        LigamentForceController(
-            name="LigamentController",
-            ligament_configs=scaled_ligaments,
-            tibia_mo=tibia_mo,
-            talus_mo=talus_mo,
-            bilinear=bilinear,
-            toe_strain=toe_strain,
-            toe_ratio=toe_ratio,
-            dt=dt,
-            talus_mass=0.1,
-        )
+    # Pre-create force fields with zero force. Updated each step by the
+    # controller (ligaments) or by apply_torque() (external torque).
+    # Must exist before init() for SOFA to register them in the solver.
+    ligament_ff = talus.addObject(
+        "ConstantForceField",
+        name="LigamentFF",
+        template="Rigid3d",
+        forces=[[0, 0, 0, 0, 0, 0]],
+        indices=[0],
     )
-
-    # Pre-create the torque force field with zero force (updated later via apply_torque).
-    # Must exist before init() for SOFA to register it in the solver.
     torque_ff = talus.addObject(
         "ConstantForceField",
         name="TorqueFF",
@@ -439,13 +580,29 @@ def create_ankle_scene(
         indices=[0],
     )
 
+    controller = root.addObject(
+        LigamentForceController(
+            name="LigamentController",
+            ligament_configs=scaled_ligaments,
+            tibia_mo=tibia_mo,
+            talus_mo=talus_mo,
+            ligament_ff=ligament_ff,
+            bilinear=bilinear,
+            toe_strain=toe_strain,
+            toe_ratio=toe_ratio,
+        )
+    )
+
     info = {
         "tibia_mo": tibia_mo,
         "talus_mo": talus_mo,
         "torque_ff": torque_ff,
         "ligaments": {name: cfg for name, cfg in zip(ligament_names, scaled_ligaments)},
         "ligament_controller": controller,
+        "mesh_mode": mesh_mode,
     }
+    if mesh_mode == "stl":
+        info["mesh_data"] = mesh_data
 
     return root, info
 
@@ -511,6 +668,8 @@ def measure_rom_arc(
     dt=0.001,
     stiffness_scale=1.0,
     bilinear=False,
+    mesh_mode="box",
+    mesh_dir=None,
 ):
     """
     Measure total sagittal ROM arc (DF + PF) by sweeping in both directions.
@@ -524,6 +683,8 @@ def measure_rom_arc(
         dt=dt,
         stiffness_scale=stiffness_scale,
         bilinear=bilinear,
+        mesh_mode=mesh_mode,
+        mesh_dir=mesh_dir,
     )
     Sofa.Simulation.init(root_df)
     apply_torque(root_df, torque_nm=abs(torque_nm), axis=0)
@@ -539,6 +700,8 @@ def measure_rom_arc(
         dt=dt,
         stiffness_scale=stiffness_scale,
         bilinear=bilinear,
+        mesh_mode=mesh_mode,
+        mesh_dir=mesh_dir,
     )
     Sofa.Simulation.init(root_pf)
     apply_torque(root_pf, torque_nm=-abs(torque_nm), axis=0)
