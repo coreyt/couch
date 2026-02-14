@@ -393,3 +393,280 @@ class TestSTLMeshMode:
         assert arc_stl < arc_box, (
             f"STL ROM ({arc_stl:.1f}) should be less than box ROM ({arc_box:.1f})"
         )
+
+
+# ===========================================================================
+# Test Group 9: Exponential Ligament Model
+# ===========================================================================
+
+class TestExponentialLigament:
+    """Verify exponential force model: F = A*(exp(B*strain)-1)."""
+
+    def test_exponential_scene_creates(self):
+        """Scene with force_model='exponential' creates without error."""
+        root, info = _create_and_init_scene(force_model="exponential")
+        assert root is not None
+
+    def test_exponential_softer_at_low_strain(self):
+        """Exponential force < linear force at small strain (toe region)."""
+        import math
+        k = 70.0       # N/mm
+        rest_length = 20.0  # mm
+        B = 30.0
+        toe_strain = 0.03
+        A = k * rest_length / (B * math.exp(B * toe_strain))
+
+        strain = 0.005  # well below toe_strain
+        extension = strain * rest_length
+        f_linear = k * extension
+        f_exp = A * (math.exp(B * strain) - 1.0)
+        assert f_exp < f_linear, (
+            f"Exponential not softer at low strain: exp={f_exp:.2f}, linear={f_linear:.2f}"
+        )
+
+    def test_exponential_stiffer_at_high_strain(self):
+        """Exponential force > linear force at strain above toe region."""
+        import math
+        k = 70.0
+        rest_length = 20.0
+        B = 30.0
+        toe_strain = 0.03
+        A = k * rest_length / (B * math.exp(B * toe_strain))
+
+        strain = 0.10  # well above toe_strain
+        extension = strain * rest_length
+        f_linear = k * extension
+        f_exp = A * (math.exp(B * strain) - 1.0)
+        assert f_exp > f_linear, (
+            f"Exponential not stiffer at high strain: exp={f_exp:.2f}, linear={f_linear:.2f}"
+        )
+
+    def test_exponential_stable_1000_steps(self):
+        """Exponential model runs 1000 steps under torque without NaN."""
+        from ankle_scene import apply_torque
+        root, _ = _create_and_init_scene(
+            gravity=[0, 0, 0], force_model="exponential"
+        )
+        apply_torque(root, torque_nm=5.0, axis=0)
+        _step_n(root, 1000)
+        pos, quat = _get_rigid_position(root.getChild("Talus"))
+        assert not np.any(np.isnan(pos)), "Talus position is NaN"
+        assert not np.any(np.isnan(quat)), "Talus quaternion is NaN"
+
+
+# ===========================================================================
+# Test Group 10: Fixed-Anchor Ligaments
+# ===========================================================================
+
+class TestFixedAnchorLigament:
+    """Verify fixed world-space anchor ligaments (for calcaneus attachments)."""
+
+    def test_fixed_anchor_scene_creates(self):
+        """Scene with a fixed-anchor ligament creates without error."""
+        from ankle_scene import DEFAULT_LIGAMENTS
+        custom = list(DEFAULT_LIGAMENTS) + [{
+            "name": "CFL_test",
+            "fixed_anchor": [20.0, 0.0, -50.0],
+            "talus_offset": [15.0, 0.0, -5.0],
+            "stiffness": 100.0,
+            "damping": 5.0,
+        }]
+        root, info = _create_and_init_scene(ligaments=custom)
+        assert root is not None
+        assert "CFL_test" in info["ligaments"]
+
+    def test_fixed_anchor_produces_restraining_force(self):
+        """Fixed-anchor ligament resists talus motion away from anchor."""
+        from ankle_scene import DEFAULT_LIGAMENTS, apply_torque
+        custom = list(DEFAULT_LIGAMENTS) + [{
+            "name": "CFL_test",
+            "fixed_anchor": [20.0, 0.0, -50.0],
+            "talus_offset": [15.0, 0.0, -5.0],
+            "stiffness": 200.0,
+            "damping": 10.0,
+        }]
+        root_with, _ = _create_and_init_scene(
+            gravity=[0, 0, 0], ligaments=custom
+        )
+        root_without, _ = _create_and_init_scene(gravity=[0, 0, 0])
+
+        apply_torque(root_with, torque_nm=5.0, axis=0)
+        apply_torque(root_without, torque_nm=5.0, axis=0)
+        _step_n(root_with, 500)
+        _step_n(root_without, 500)
+
+        angle_with = abs(_relative_angle_deg(
+            root_with.getChild("Tibia"), root_with.getChild("Talus"), axis=0
+        ))
+        angle_without = abs(_relative_angle_deg(
+            root_without.getChild("Tibia"), root_without.getChild("Talus"), axis=0
+        ))
+        # Extra ligament should provide additional restraint (less rotation)
+        assert angle_with < angle_without * 1.05, (
+            f"Fixed-anchor didn't restrain: with={angle_with:.1f}, without={angle_without:.1f}"
+        )
+
+
+# ===========================================================================
+# Test Group 11: Anatomical Ligament Model
+# ===========================================================================
+
+class TestAnatomicalLigaments:
+    """Verify anatomical ligament configuration (7 ligaments + Achilles)."""
+
+    def test_anatomical_box_creates(self):
+        """Anatomical model in box mode creates without error."""
+        root, info = _create_and_init_scene(ligament_model="anatomical")
+        assert root is not None
+
+    def test_anatomical_stl_creates(self):
+        """Anatomical model in STL mode creates without error."""
+        root, info = _create_and_init_scene(
+            ligament_model="anatomical", mesh_mode="stl"
+        )
+        assert root is not None
+
+    def test_anatomical_has_7_ligaments(self):
+        """Anatomical model has 7 ligaments (not 4)."""
+        _, info = _create_and_init_scene(ligament_model="anatomical")
+        assert len(info["ligaments"]) == 7, (
+            f"Expected 7 ligaments, got {len(info['ligaments'])}: "
+            f"{list(info['ligaments'].keys())}"
+        )
+
+    def test_anatomical_has_achilles(self):
+        """Anatomical model includes Achilles tendon."""
+        _, info = _create_and_init_scene(ligament_model="anatomical")
+        assert "Achilles" in info["ligaments"]
+
+    def test_anatomical_has_cfl(self):
+        """Anatomical model includes calcaneofibular ligament."""
+        _, info = _create_and_init_scene(ligament_model="anatomical")
+        assert "CFL" in info["ligaments"]
+
+
+# ===========================================================================
+# Test Group 12: Fibula Mesh
+# ===========================================================================
+
+class TestFibulaMesh:
+    """Verify fibula mesh loading and collision node."""
+
+    def test_fibula_mesh_loads(self):
+        """Fibula mesh loads from BodyParts3D STL."""
+        from ankle_scene import load_bone_meshes
+        data = load_bone_meshes()
+        assert "fibula_verts" in data, "Fibula mesh not loaded"
+        assert len(data["fibula_verts"]) > 50
+        assert data["fibula_faces"] <= 2000
+
+    def test_fibula_collision_node_exists(self):
+        """STL scene has FibulaCollision sub-node under Tibia."""
+        root, _ = _create_and_init_scene(mesh_mode="stl")
+        tibia = root.getChild("Tibia")
+        fibula_col = tibia.getChild("FibulaCollision")
+        assert fibula_col is not None, "FibulaCollision node not found under Tibia"
+
+    def test_fibula_stl_stable_200_steps(self):
+        """STL scene with fibula runs 200 steps without NaN or crash."""
+        root, _ = _create_and_init_scene(gravity=[0, 0, 0], mesh_mode="stl")
+        _step_n(root, 200)
+        pos, quat = _get_rigid_position(root.getChild("Talus"))
+        assert not np.any(np.isnan(pos)), "Talus position is NaN"
+        assert not np.any(np.isnan(quat)), "Talus quaternion is NaN"
+
+
+# ===========================================================================
+# Test Group 13: ROM Calibration & Validation (Imhauser)
+# ===========================================================================
+
+class TestROMValidation:
+    """Validate anatomical model ROM against Imhauser FEA (5 Nm).
+
+    Imhauser et al. validated FEA: 23.5° DF + 35.7° PF = 59.2° total.
+    Acceptance range: spike-level tolerance ± 10°.
+    """
+
+    @pytest.fixture(scope="class")
+    def stl_rom(self):
+        """Measure STL anatomical ROM once for the class."""
+        from ankle_scene import measure_rom_components
+        df, pf, total = measure_rom_components(
+            torque_nm=5.0, steps_per_direction=2000,
+            ligament_model="anatomical", mesh_mode="stl",
+        )
+        return df, pf, total
+
+    def test_total_arc_in_imhauser_range(self, stl_rom):
+        """Total arc within Imhauser 59.2° ± 10°."""
+        _, _, total = stl_rom
+        assert 49.0 <= total <= 69.0, f"Total arc {total:.1f}° outside 49-69°"
+
+    def test_df_in_range(self, stl_rom):
+        """Dorsiflexion within 15-30°."""
+        df, _, _ = stl_rom
+        assert 15.0 <= df <= 30.0, f"DF {df:.1f}° outside 15-30°"
+
+    def test_pf_in_range(self, stl_rom):
+        """Plantarflexion within 25-50°."""
+        _, pf, _ = stl_rom
+        assert 25.0 <= pf <= 50.0, f"PF {pf:.1f}° outside 25-50°"
+
+    def test_pf_greater_than_df(self, stl_rom):
+        """PF > DF (anatomically correct asymmetry)."""
+        df, pf, _ = stl_rom
+        assert pf > df, f"PF ({pf:.1f}°) should exceed DF ({df:.1f}°)"
+
+    def test_anatomical_less_rom_than_simple_box(self):
+        """Anatomical model produces less ROM than simple 4-ligament box."""
+        from ankle_scene import measure_rom_arc
+        arc_simple = measure_rom_arc(
+            torque_nm=5.0, steps_per_direction=1000,
+            ligament_model="simple", mesh_mode="box",
+        )
+        arc_anat = measure_rom_arc(
+            torque_nm=5.0, steps_per_direction=1000,
+            ligament_model="anatomical", mesh_mode="box",
+        )
+        assert arc_anat < arc_simple, (
+            f"Anatomical ({arc_anat:.1f}°) should be less than simple ({arc_simple:.1f}°)"
+        )
+
+    def test_achilles_limits_dorsiflexion(self):
+        """Removing Achilles increases DF significantly."""
+        from ankle_scene import (
+            ANATOMICAL_LIGAMENTS, create_ankle_scene,
+            apply_torque, compute_joint_angle,
+        )
+        import Sofa.Simulation
+
+        # With Achilles
+        root_with, _ = create_ankle_scene(
+            gravity=[0, 0, 0], ligament_model="anatomical",
+            mesh_mode="box", force_model="linear",
+        )
+        Sofa.Simulation.init(root_with)
+        apply_torque(root_with, torque_nm=5.0, axis=0)
+        for _ in range(1000):
+            Sofa.Simulation.animate(root_with, 0.001)
+        df_with = abs(compute_joint_angle(
+            root_with.getChild("Tibia"), root_with.getChild("Talus"), axis=0
+        ))
+
+        # Without Achilles
+        no_achilles = [l for l in ANATOMICAL_LIGAMENTS if l["name"] != "Achilles"]
+        root_without, _ = create_ankle_scene(
+            gravity=[0, 0, 0], ligaments=no_achilles,
+            mesh_mode="box", force_model="linear",
+        )
+        Sofa.Simulation.init(root_without)
+        apply_torque(root_without, torque_nm=5.0, axis=0)
+        for _ in range(1000):
+            Sofa.Simulation.animate(root_without, 0.001)
+        df_without = abs(compute_joint_angle(
+            root_without.getChild("Tibia"), root_without.getChild("Talus"), axis=0
+        ))
+
+        assert df_without > df_with * 1.1, (
+            f"Achilles not limiting DF: with={df_with:.1f}°, without={df_without:.1f}°"
+        )
