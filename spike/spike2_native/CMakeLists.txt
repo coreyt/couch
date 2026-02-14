@@ -23,11 +23,27 @@ list(PREPEND CMAKE_PREFIX_PATH "${SOFA_ROOT}/lib/cmake")
 # --- Dependencies ---
 find_package(Eigen3 REQUIRED)
 find_package(Sofa.SimpleApi REQUIRED)
+# Individual component packages (Sofa.Component meta-package requires ZLIB for IO.Mesh)
 find_package(Sofa.Component.StateContainer REQUIRED)
+find_package(Sofa.Component.MechanicalLoad REQUIRED)
+find_package(Sofa.Component.AnimationLoop REQUIRED)
+find_package(Sofa.Component.Constraint.Lagrangian.Solver REQUIRED)
+find_package(Sofa.Component.Constraint.Lagrangian.Correction REQUIRED)
+find_package(Sofa.Component.Constraint.Projective REQUIRED)
+find_package(Sofa.Component.Collision.Detection.Algorithm REQUIRED)
+find_package(Sofa.Component.Collision.Detection.Intersection REQUIRED)
+find_package(Sofa.Component.Collision.Geometry REQUIRED)
+find_package(Sofa.Component.Collision.Response.Contact REQUIRED)
+find_package(Sofa.Component.Mass REQUIRED)
+find_package(Sofa.Component.ODESolver.Backward REQUIRED)
+find_package(Sofa.Component.LinearSolver.Iterative REQUIRED)
+find_package(Sofa.Component.Mapping.Linear REQUIRED)
+find_package(Sofa.Component.Topology.Container.Constant REQUIRED)
 
 # --- Shared library ---
 add_library(SofaAnkleBridge SHARED
     src/sofa_ankle_bridge.cpp
+    src/ankle_scene.cpp
 )
 
 target_include_directories(SofaAnkleBridge
@@ -51,6 +67,20 @@ target_link_libraries(SofaAnkleBridge
     PRIVATE
         Sofa.SimpleApi
         Sofa.Component.StateContainer
+        Sofa.Component.MechanicalLoad
+        Sofa.Component.AnimationLoop
+        Sofa.Component.Constraint.Lagrangian.Solver
+        Sofa.Component.Constraint.Lagrangian.Correction
+        Sofa.Component.Constraint.Projective
+        Sofa.Component.Collision.Detection.Algorithm
+        Sofa.Component.Collision.Detection.Intersection
+        Sofa.Component.Collision.Geometry
+        Sofa.Component.Collision.Response.Contact
+        Sofa.Component.Mass
+        Sofa.Component.ODESolver.Backward
+        Sofa.Component.LinearSolver.Iterative
+        Sofa.Component.Mapping.Linear
+        Sofa.Component.Topology.Container.Constant
         Eigen3::Eigen
 )
 
@@ -72,9 +102,23 @@ if(BUILD_TESTS)
         BUILD_RPATH "${SOFA_ROOT}/lib;$<TARGET_FILE_DIR:SofaAnkleBridge>"
     )
 
+    add_executable(test_ankle_scene test/test_ankle_scene.cpp)
+    target_link_libraries(test_ankle_scene
+        PRIVATE
+            SofaAnkleBridge
+            gtest
+    )
+    set_target_properties(test_ankle_scene PROPERTIES
+        BUILD_RPATH "${SOFA_ROOT}/lib;$<TARGET_FILE_DIR:SofaAnkleBridge>"
+    )
+
     enable_testing()
     add_test(NAME BridgeTests COMMAND test_bridge)
     set_tests_properties(BridgeTests PROPERTIES
+        ENVIRONMENT "SOFA_PLUGIN_DIR=${SOFA_ROOT}/lib;SOFA_ROOT=${SOFA_ROOT}"
+    )
+    add_test(NAME AnkleSceneTests COMMAND test_ankle_scene)
+    set_tests_properties(AnkleSceneTests PROPERTIES
         ENVIRONMENT "SOFA_PLUGIN_DIR=${SOFA_ROOT}/lib;SOFA_ROOT=${SOFA_ROOT}"
     )
 endif()
