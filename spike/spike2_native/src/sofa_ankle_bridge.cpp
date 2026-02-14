@@ -1,5 +1,6 @@
 #include "sofa_ankle_bridge.h"
 #include "ankle_scene.h"
+#include "thread_manager.h"
 
 #include <sofa/simpleapi/SimpleApi.h>
 #include <sofa/simpleapi/init.h>
@@ -15,9 +16,20 @@ static bool g_initialized = false;
 static sofa::simulation::NodeSPtr g_root;
 static std::string g_last_error;
 static AnkleSceneState g_scene;
+static ThreadManager g_thread_manager;
 
 static void set_error(const std::string& msg) {
     g_last_error = msg;
+}
+
+SofaBridgeVersion sofa_bridge_get_version() {
+    SofaBridgeVersion v = {};
+    v.bridge_version_major = 0;
+    v.bridge_version_minor = 1;
+    v.bridge_version_patch = 0;
+    v.sofa_version_major = 24;
+    v.sofa_version_minor = 6;
+    return v;
 }
 
 int sofa_bridge_init(const char* plugin_dir) {
@@ -64,6 +76,9 @@ int sofa_step(float dt) {
         return 1;
     }
 
+    // Wait for any in-progress async step before running a synchronous one
+    g_thread_manager.wait();
+
     try {
         if (g_scene.is_active) {
             apply_ligament_forces(g_scene);
@@ -88,6 +103,9 @@ void sofa_bridge_shutdown() {
         return;
     }
 
+    // Join any in-progress async step before cleanup
+    g_thread_manager.shutdown(5000);
+
     try {
         g_scene = AnkleSceneState{}; // reset before unload
         if (g_root) {
@@ -102,6 +120,9 @@ void sofa_bridge_shutdown() {
 
     g_initialized = false;
     g_last_error.clear();
+
+    // Reset thread manager for potential re-init
+    g_thread_manager.reset();
 }
 
 const char* sofa_bridge_get_error() {
@@ -212,6 +233,9 @@ int sofa_get_frame_snapshot(SofaFrameSnapshot* out) {
         return 1;
     }
 
+    // Wait for any in-progress async step to get latest data
+    g_thread_manager.wait();
+
     try {
         int rc = fill_frame_snapshot(g_scene, out);
         if (rc != 0) {
@@ -227,4 +251,45 @@ int sofa_get_frame_snapshot(SofaFrameSnapshot* out) {
         set_error("Get snapshot failed: unknown error");
         return 1;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Async stepping
+// ---------------------------------------------------------------------------
+
+int sofa_step_async(float dt) {
+    if (!g_initialized) {
+        set_error("Not initialized — call sofa_bridge_init() first");
+        return 1;
+    }
+    if (dt <= 0.0f) {
+        set_error("dt must be > 0");
+        return 1;
+    }
+
+    bool started = g_thread_manager.start_step([dt]() {
+        if (g_scene.is_active) {
+            apply_ligament_forces(g_scene);
+        }
+        sofa::simulation::node::animate(g_root.get(), static_cast<double>(dt));
+        if (g_scene.is_active) {
+            g_scene.step_count++;
+        }
+    });
+
+    if (!started) {
+        set_error("Async step already in progress");
+        return 1;
+    }
+
+    g_last_error.clear();
+    return 0;
+}
+
+int sofa_step_async_is_complete() {
+    return g_thread_manager.is_complete() ? 1 : 0;
+}
+
+void sofa_step_async_wait() {
+    g_thread_manager.wait();
 }

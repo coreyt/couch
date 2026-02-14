@@ -15,6 +15,18 @@
 extern "C" {
 #endif
 
+// ---- Version ----
+
+typedef struct {
+    int bridge_version_major;  // 0 (pre-release)
+    int bridge_version_minor;  // 1
+    int bridge_version_patch;  // 0
+    int sofa_version_major;    // 24
+    int sofa_version_minor;    // 6
+} SofaBridgeVersion;
+
+SOFA_BRIDGE_API SofaBridgeVersion sofa_bridge_get_version(void);
+
 // ---- Data structs ----
 
 typedef struct {
@@ -87,6 +99,20 @@ SOFA_BRIDGE_API int sofa_apply_torque(float torque_nm, int axis);
 /// @param out Pointer to snapshot struct to fill.
 /// @return 0 on success, non-zero on error.
 SOFA_BRIDGE_API int sofa_get_frame_snapshot(SofaFrameSnapshot* out);
+
+// ---- Async stepping ----
+
+/// Start a simulation step on a background thread. Non-blocking.
+/// @param dt Timestep in seconds (must be > 0).
+/// @return 0 on success, non-zero if a step is already in progress.
+SOFA_BRIDGE_API int sofa_step_async(float dt);
+
+/// Poll whether the async step has completed.
+/// @return 1 if complete (or no step running), 0 if still in progress.
+SOFA_BRIDGE_API int sofa_step_async_is_complete(void);
+
+/// Block until the async step finishes. No-op if no step running.
+SOFA_BRIDGE_API void sofa_step_async_wait(void);
 
 #ifdef __cplusplus
 }

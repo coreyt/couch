@@ -41,15 +41,20 @@ find_package(Sofa.Component.Mapping.Linear REQUIRED)
 find_package(Sofa.Component.Topology.Container.Constant REQUIRED)
 
 # --- Shared library ---
+find_package(Threads REQUIRED)
+
 add_library(SofaAnkleBridge SHARED
     src/sofa_ankle_bridge.cpp
     src/ankle_scene.cpp
+    src/thread_manager.cpp
 )
 
 target_include_directories(SofaAnkleBridge
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
         $<INSTALL_INTERFACE:include>
+    PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/src
 )
 
 target_compile_definitions(SofaAnkleBridge PRIVATE SOFA_ANKLE_BRIDGE_EXPORTS)
@@ -82,6 +87,7 @@ target_link_libraries(SofaAnkleBridge
         Sofa.Component.Mapping.Linear
         Sofa.Component.Topology.Container.Constant
         Eigen3::Eigen
+        Threads::Threads
 )
 
 # --- Tests ---
@@ -112,6 +118,16 @@ if(BUILD_TESTS)
         BUILD_RPATH "${SOFA_ROOT}/lib;$<TARGET_FILE_DIR:SofaAnkleBridge>"
     )
 
+    add_executable(test_async test/test_async.cpp)
+    target_link_libraries(test_async
+        PRIVATE
+            SofaAnkleBridge
+            gtest
+    )
+    set_target_properties(test_async PROPERTIES
+        BUILD_RPATH "${SOFA_ROOT}/lib;$<TARGET_FILE_DIR:SofaAnkleBridge>"
+    )
+
     enable_testing()
     add_test(NAME BridgeTests COMMAND test_bridge)
     set_tests_properties(BridgeTests PROPERTIES
@@ -119,6 +135,10 @@ if(BUILD_TESTS)
     )
     add_test(NAME AnkleSceneTests COMMAND test_ankle_scene)
     set_tests_properties(AnkleSceneTests PROPERTIES
+        ENVIRONMENT "SOFA_PLUGIN_DIR=${SOFA_ROOT}/lib;SOFA_ROOT=${SOFA_ROOT}"
+    )
+    add_test(NAME AsyncTests COMMAND test_async)
+    set_tests_properties(AsyncTests PROPERTIES
         ENVIRONMENT "SOFA_PLUGIN_DIR=${SOFA_ROOT}/lib;SOFA_ROOT=${SOFA_ROOT}"
     )
 endif()
