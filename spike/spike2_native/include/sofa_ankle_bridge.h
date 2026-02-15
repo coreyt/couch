@@ -90,7 +90,7 @@ SOFA_BRIDGE_API int sofa_scene_create_ankle_ex(float dt, float gravity_z,
     const SofaLigamentConfig* ligaments, int num_ligaments);
 
 /// Apply an external torque about a given axis.
-/// @param torque_nm Torque magnitude in N·mm.
+/// @param torque_nm Torque magnitude in N·m (converted to N·mm internally).
 /// @param axis 0=sagittal(X), 1=frontal(Y), 2=transverse(Z).
 /// @return 0 on success, non-zero on error.
 SOFA_BRIDGE_API int sofa_apply_torque(float torque_nm, int axis);

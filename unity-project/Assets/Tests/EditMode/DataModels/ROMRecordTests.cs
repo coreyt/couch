@@ -33,5 +33,13 @@ namespace AnkleSim.Tests.EditMode.DataModels
 
             Assert.AreEqual(40f, record.totalSagittalArc, 0.001f);
         }
+
+        [Test]
+        public void RecalculateTotalArc_WithZeroValues_ReturnsZero()
+        {
+            var record = new ROMRecord();
+            record.RecalculateTotalArc();
+            Assert.AreEqual(0f, record.totalSagittalArc, 0.001f);
+        }
     }
 }

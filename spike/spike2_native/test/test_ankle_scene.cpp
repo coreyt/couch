@@ -147,8 +147,8 @@ TEST_F(AnkleSceneTest, ApplyTorque_ProducesRotation) {
     ASSERT_EQ(sofa_scene_create_ankle(0.001f, 0.0f), 0)
         << sofa_bridge_get_error();
 
-    // Apply 5 N·mm sagittal torque
-    ASSERT_EQ(sofa_apply_torque(5.0f, 0), 0) << sofa_bridge_get_error();
+    // Apply 0.005 N·m (= 5 N·mm) sagittal torque
+    ASSERT_EQ(sofa_apply_torque(0.005f, 0), 0) << sofa_bridge_get_error();
 
     for (int i = 0; i < 1000; i++) {
         ASSERT_EQ(sofa_step(0.001f), 0) << "Step " << i;
@@ -163,9 +163,9 @@ TEST_F(AnkleSceneTest, ApplyTorque_ProducesRotation) {
 
 // 8. Opposite torques produce opposite angles
 TEST_F(AnkleSceneTest, OppositeTorques_OppositeAngles) {
-    // Positive torque
+    // Positive torque (0.005 N·m = 5 N·mm)
     ASSERT_EQ(sofa_scene_create_ankle(0.001f, 0.0f), 0);
-    ASSERT_EQ(sofa_apply_torque(5.0f, 0), 0);
+    ASSERT_EQ(sofa_apply_torque(0.005f, 0), 0);
     for (int i = 0; i < 1000; i++) {
         ASSERT_EQ(sofa_step(0.001f), 0);
     }
@@ -174,10 +174,10 @@ TEST_F(AnkleSceneTest, OppositeTorques_OppositeAngles) {
 
     sofa_bridge_shutdown();
 
-    // Negative torque
+    // Negative torque (-0.005 N·m = -5 N·mm)
     ASSERT_EQ(sofa_bridge_init(get_plugin_dir()), 0);
     ASSERT_EQ(sofa_scene_create_ankle(0.001f, 0.0f), 0);
-    ASSERT_EQ(sofa_apply_torque(-5.0f, 0), 0);
+    ASSERT_EQ(sofa_apply_torque(-0.005f, 0), 0);
     for (int i = 0; i < 1000; i++) {
         ASSERT_EQ(sofa_step(0.001f), 0);
     }
@@ -233,9 +233,9 @@ TEST_F(AnkleSceneTest, LigamentsResistMotion) {
 
 // 11. ROM arc in plausible range (10-120 degrees)
 TEST_F(AnkleSceneTest, RomArc_InPlausibleRange) {
-    // Positive torque sweep
+    // Positive torque sweep (0.005 N·m = 5 N·mm)
     ASSERT_EQ(sofa_scene_create_ankle(0.001f, 0.0f), 0);
-    ASSERT_EQ(sofa_apply_torque(5.0f, 0), 0);
+    ASSERT_EQ(sofa_apply_torque(0.005f, 0), 0);
     for (int i = 0; i < 2000; i++) {
         ASSERT_EQ(sofa_step(0.001f), 0);
     }
@@ -244,10 +244,10 @@ TEST_F(AnkleSceneTest, RomArc_InPlausibleRange) {
 
     sofa_bridge_shutdown();
 
-    // Negative torque sweep
+    // Negative torque sweep (-0.005 N·m = -5 N·mm)
     ASSERT_EQ(sofa_bridge_init(get_plugin_dir()), 0);
     ASSERT_EQ(sofa_scene_create_ankle(0.001f, 0.0f), 0);
-    ASSERT_EQ(sofa_apply_torque(-5.0f, 0), 0);
+    ASSERT_EQ(sofa_apply_torque(-0.005f, 0), 0);
     for (int i = 0; i < 2000; i++) {
         ASSERT_EQ(sofa_step(0.001f), 0);
     }
@@ -332,7 +332,7 @@ TEST_F(AnkleSceneTest, NoScene_FunctionsReturnError) {
     // No scene created — just init
     SofaFrameSnapshot snap = {};
     EXPECT_NE(sofa_get_frame_snapshot(&snap), 0);
-    EXPECT_NE(sofa_apply_torque(1.0f, 0), 0);
+    EXPECT_NE(sofa_apply_torque(0.001f, 0), 0);
 }
 
 int main(int argc, char** argv) {

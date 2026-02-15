@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 
 namespace AnkleSim.Bridge
@@ -39,6 +40,40 @@ namespace AnkleSim.Bridge
         public double stiffness;
         public double damping;
         public double restLength;
+
+        /// <summary>
+        /// Creates a SofaLigamentConfig with a managed name string.
+        /// The returned IntPtr must be freed via FreeNamePtrs() after use.
+        /// </summary>
+        public static SofaLigamentConfig Create(string ligamentName,
+            double[] tibiaOff, double[] talusOff,
+            double stiffness, double damping, double restLength,
+            double[] fixedAnchor = null, bool useFixed = false)
+        {
+            return new SofaLigamentConfig
+            {
+                name = Marshal.StringToHGlobalAnsi(ligamentName),
+                tibiaOffset = tibiaOff,
+                talusOffset = talusOff,
+                fixedAnchor = fixedAnchor ?? new double[3],
+                useFixedAnchor = useFixed ? 1 : 0,
+                stiffness = stiffness,
+                damping = damping,
+                restLength = restLength
+            };
+        }
+
+        /// <summary>
+        /// Frees all name IntPtrs allocated by Create().
+        /// </summary>
+        public static void FreeNamePtrs(SofaLigamentConfig[] configs)
+        {
+            foreach (var c in configs)
+            {
+                if (c.name != IntPtr.Zero)
+                    Marshal.FreeHGlobal(c.name);
+            }
+        }
     }
 
     [StructLayout(LayoutKind.Sequential)]

@@ -113,6 +113,47 @@ namespace AnkleSim.Tests.PlayMode.Anatomy
             Object.DestroyImmediate(partialConfig);
         }
 
+        [UnityTest]
+        public IEnumerator LoadAnatomy_NullConfig_DoesNotThrow()
+        {
+            _manager.LoadAnatomy(null);
+            yield return null;
+
+            // Should have no bone objects after null config
+            Assert.IsNull(_manager.GetBoneGameObject(BoneType.Tibia));
+        }
+
+        [UnityTest]
+        public IEnumerator LoadAnatomy_Reload_DestroysOldObjects()
+        {
+            _manager.LoadAnatomy(_config);
+            yield return null;
+
+            var firstTibia = _manager.GetBoneGameObject(BoneType.Tibia);
+            Assert.IsNotNull(firstTibia);
+
+            // Reload with new config
+            var config2 = ScriptableObject.CreateInstance<AnatomyConfig>();
+            config2.tibiaMesh = CreateTestMesh("Tibia2", 48);
+            config2.talusMesh = CreateTestMesh("Talus2", 60);
+            config2.fibulaMesh = CreateTestMesh("Fibula2", 30);
+            config2.calcaneusMesh = CreateTestMesh("Calcaneus2", 20);
+            config2.ligaments = new LigamentConfig[0];
+
+            _manager.LoadAnatomy(config2);
+            yield return null;
+
+            // Old object should be destroyed (null in Unity)
+            Assert.IsTrue(firstTibia == null);
+
+            // New object should exist with new mesh
+            var newTibia = _manager.GetBoneGameObject(BoneType.Tibia);
+            Assert.IsNotNull(newTibia);
+            Assert.AreEqual(48, _manager.GetBoneMesh(BoneType.Tibia).vertexCount);
+
+            Object.DestroyImmediate(config2);
+        }
+
         private Mesh CreateTestMesh(string name, int vertexCount)
         {
             var mesh = new Mesh { name = name };

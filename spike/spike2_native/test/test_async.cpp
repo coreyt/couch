@@ -112,7 +112,7 @@ TEST_F(AsyncTest, StepAsync_Wait_BlocksUntilDone) {
 TEST_F(AsyncTest, StepAsync_100Steps_MatchesSync) {
     // Run 100 sync steps
     ASSERT_EQ(sofa_scene_create_ankle(0.001f, 0.0f), 0) << sofa_bridge_get_error();
-    ASSERT_EQ(sofa_apply_torque(5.0f, 0), 0);
+    ASSERT_EQ(sofa_apply_torque(0.005f, 0), 0);
 
     for (int i = 0; i < 100; i++) {
         ASSERT_EQ(sofa_step(0.001f), 0) << "Sync step " << i;
@@ -126,7 +126,7 @@ TEST_F(AsyncTest, StepAsync_100Steps_MatchesSync) {
     // Run 100 async steps
     ASSERT_EQ(sofa_bridge_init(get_plugin_dir()), 0) << sofa_bridge_get_error();
     ASSERT_EQ(sofa_scene_create_ankle(0.001f, 0.0f), 0) << sofa_bridge_get_error();
-    ASSERT_EQ(sofa_apply_torque(5.0f, 0), 0);
+    ASSERT_EQ(sofa_apply_torque(0.005f, 0), 0);
 
     for (int i = 0; i < 100; i++) {
         ASSERT_EQ(sofa_step_async(0.001f), 0)

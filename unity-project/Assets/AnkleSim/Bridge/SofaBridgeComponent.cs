@@ -18,29 +18,48 @@ namespace AnkleSim.Bridge
         private bool _asyncStepPending;
 
         public SofaSimulation Simulation => _sim;
-        public SofaFrameSnapshot LatestSnapshot { get; private set; }
+        public SofaFrameSnapshot LatestSnapshot { get; private set; } = CreateIdentitySnapshot();
 
         private void OnEnable()
         {
-            _sim = new SofaSimulation();
-            _sim.Initialize(string.IsNullOrEmpty(pluginDir) ? null : pluginDir);
-            _sim.CreateAnkleScene(dt, gravityZ);
+            try
+            {
+                _sim = new SofaSimulation();
+                _sim.Initialize(string.IsNullOrEmpty(pluginDir) ? null : pluginDir);
+                _sim.CreateAnkleScene(dt, gravityZ);
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[SofaBridge] OnEnable failed: {e.Message}");
+                if (_sim != null)
+                {
+                    _sim.Dispose();
+                    _sim = null;
+                }
+            }
         }
 
         private void FixedUpdate()
         {
             if (_sim == null) return;
 
-            if (_asyncStepPending)
+            try
             {
-                if (!_sim.IsStepComplete()) return;
+                if (_asyncStepPending)
+                {
+                    if (!_sim.IsStepComplete()) return;
 
-                LatestSnapshot = _sim.GetSnapshot();
-                _asyncStepPending = false;
+                    LatestSnapshot = _sim.GetSnapshot();
+                    _asyncStepPending = false;
+                }
+
+                _sim.StepAsync(dt);
+                _asyncStepPending = true;
             }
-
-            _sim.StepAsync(dt);
-            _asyncStepPending = true;
+            catch (SofaBridgeException e)
+            {
+                Debug.LogError($"[SofaBridge] FixedUpdate failed: {e.Message}");
+            }
         }
 
         private void OnDisable()
@@ -51,6 +70,20 @@ namespace AnkleSim.Bridge
                 _sim = null;
                 _asyncStepPending = false;
             }
+        }
+
+        private static SofaFrameSnapshot CreateIdentitySnapshot()
+        {
+            var snap = new SofaFrameSnapshot
+            {
+                tibia = new SofaRigidFrame { qw = 1.0 },
+                talus = new SofaRigidFrame { qw = 1.0 },
+                jointAnglesDeg = new double[3],
+                ligamentForce = new double[3],
+                ligamentTorque = new double[3],
+                stepCount = 0
+            };
+            return snap;
         }
     }
 }

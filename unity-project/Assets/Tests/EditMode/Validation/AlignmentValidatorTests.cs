@@ -128,5 +128,46 @@ namespace AnkleSim.Tests.EditMode.Validation
             Assert.IsTrue(metrics.warnings.Exists(w => w.parameter == "Posterior Slope"));
             Assert.IsTrue(metrics.warnings.Exists(w => w.parameter == "Tibiotalar Congruence"));
         }
+
+        [Test]
+        public void Validate_ExactlyAtThreshold_ReturnsWarning()
+        {
+            var metrics = new AlignmentMetrics
+            {
+                tibiotalarAngle = AlignmentValidator.TibiotalarAngleThreshold,
+                anteriorDistalTibialAngle = 89f,
+                posteriorSlope = AlignmentValidator.PosteriorSlopeThreshold,
+                tibiotalarCongruence = AlignmentValidator.TibiotalarCongruenceThreshold
+            };
+
+            AlignmentValidator.Validate(metrics);
+
+            Assert.IsFalse(metrics.isAcceptable);
+            Assert.AreEqual(3, metrics.warnings.Count);
+        }
+
+        [Test]
+        public void Validate_ADTA_ExactlyAtBoundaries_ReturnsAcceptable()
+        {
+            var metricsMin = new AlignmentMetrics
+            {
+                tibiotalarAngle = 0f,
+                anteriorDistalTibialAngle = AlignmentValidator.ADTAMin,
+                posteriorSlope = 0f,
+                tibiotalarCongruence = 0f
+            };
+            AlignmentValidator.Validate(metricsMin);
+            Assert.IsTrue(metricsMin.isAcceptable);
+
+            var metricsMax = new AlignmentMetrics
+            {
+                tibiotalarAngle = 0f,
+                anteriorDistalTibialAngle = AlignmentValidator.ADTAMax,
+                posteriorSlope = 0f,
+                tibiotalarCongruence = 0f
+            };
+            AlignmentValidator.Validate(metricsMax);
+            Assert.IsTrue(metricsMax.isAcceptable);
+        }
     }
 }

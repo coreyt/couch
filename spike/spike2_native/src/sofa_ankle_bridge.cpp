@@ -199,7 +199,7 @@ int sofa_apply_torque(float torque_nm, int axis) {
     try {
         // Build the 6-component wrench: [fx fy fz tx ty tz]
         double torque[3] = {0, 0, 0};
-        torque[axis] = static_cast<double>(torque_nm);
+        torque[axis] = static_cast<double>(torque_nm) * 1000.0; // N·m → N·mm
 
         auto* d_forces = g_scene.torque_ff->findData("forces");
         if (d_forces) {
@@ -268,6 +268,7 @@ int sofa_step_async(float dt) {
     }
 
     bool started = g_thread_manager.start_step([dt]() {
+        if (g_thread_manager.cancel_requested()) return;
         if (g_scene.is_active) {
             apply_ligament_forces(g_scene);
         }

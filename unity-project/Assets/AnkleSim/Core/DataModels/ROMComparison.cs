@@ -11,6 +11,9 @@ namespace AnkleSim.Core.DataModels
 
         public static ROMComparison Create(ROMRecord pre, ROMRecord post)
         {
+            pre.RecalculateTotalArc();
+            post.RecalculateTotalArc();
+
             return new ROMComparison
             {
                 preOp = pre,

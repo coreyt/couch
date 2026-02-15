@@ -12,6 +12,15 @@ namespace AnkleSim.Runtime.Anatomy
 
         public void LoadAnatomy(AnatomyConfig config)
         {
+            if (config == null) return;
+
+            // Destroy existing bone GameObjects before re-loading
+            foreach (var kvp in _boneObjects)
+            {
+                if (kvp.Value != null)
+                    DestroyImmediate(kvp.Value);
+            }
+
             _config = config;
             _boneObjects.Clear();
 

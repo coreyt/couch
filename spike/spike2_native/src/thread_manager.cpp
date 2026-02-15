@@ -29,13 +29,12 @@ bool ThreadManager::is_complete() const {
 }
 
 void ThreadManager::wait() {
-    // Spin-wait briefly, then yield. The step function is expected to be fast
-    // (sub-millisecond for typical SOFA ankle steps).
+    // Hold the mutex to prevent start_step() from launching a new step
+    // between completion check and join_worker().
+    std::lock_guard<std::mutex> lock(_step_mutex);
     while (!_step_complete.load()) {
         std::this_thread::yield();
     }
-
-    std::lock_guard<std::mutex> lock(_step_mutex);
     join_worker();
 }
 

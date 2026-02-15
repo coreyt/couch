@@ -14,8 +14,7 @@ namespace AnkleSim.Core.DataModels
 
         public bool HasOverhang()
         {
-            hasOverhang = tibialCoveragePercent > 100f || talarCoveragePercent > 100f;
-            return hasOverhang;
+            return tibialCoveragePercent > 100f || talarCoveragePercent > 100f;
         }
     }
 }
