@@ -422,6 +422,10 @@ void SceneBuilder::applyLigamentForces() {
 
         Vec3 force = spring_force + damping_force;
 
+        // Clamp: ligaments are tension-only, never apply compressive force
+        double net_along = force * direction;
+        if (net_along < 0.0) force = Vec3(0, 0, 0);
+
         // Accumulate force on bone B
         bone_forces[lig.bone_b_name].force += force;
 

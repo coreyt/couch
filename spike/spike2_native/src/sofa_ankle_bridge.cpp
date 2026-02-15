@@ -397,6 +397,9 @@ int sofa_apply_torque(float torque_nm, int axis) {
         return 1;
     }
 
+    // Wait for any in-progress async step to avoid data race on force fields
+    g_thread_manager.wait();
+
     if (g_use_builder && g_builder.state() == SceneBuilderState::Finalized) {
         // Apply to first free bone
         BoneState* free_bone = g_builder.firstFreeBone();
@@ -455,15 +458,15 @@ int sofa_get_frame_snapshot(SofaFrameSnapshot* out) {
         return 1;
     }
 
-    // Wait for any in-progress async step to get latest data
-    g_thread_manager.wait();
-
-    // Try triple buffer first
+    // Try triple buffer first (non-blocking — preserves async stepping benefit)
     if (g_snapshot_buffer.hasData()) {
         *out = g_snapshot_buffer.read();
         g_last_error.clear();
         return 0;
     }
+
+    // No published data yet — wait for any in-progress async step, then direct fill
+    g_thread_manager.wait();
 
     // Fall back to direct fill
     if (g_use_builder && g_builder.state() == SceneBuilderState::Finalized) {

@@ -80,14 +80,23 @@ namespace AnkleSim.Bridge
         /// </summary>
         public static void FreeNamePtrs(SofaLigamentConfig[] configs)
         {
-            foreach (var c in configs)
+            for (int i = 0; i < configs.Length; i++)
             {
-                if (c.name != IntPtr.Zero)
-                    Marshal.FreeHGlobal(c.name);
-                if (c.boneAName != IntPtr.Zero)
-                    Marshal.FreeHGlobal(c.boneAName);
-                if (c.boneBName != IntPtr.Zero)
-                    Marshal.FreeHGlobal(c.boneBName);
+                if (configs[i].name != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(configs[i].name);
+                    configs[i].name = IntPtr.Zero;
+                }
+                if (configs[i].boneAName != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(configs[i].boneAName);
+                    configs[i].boneAName = IntPtr.Zero;
+                }
+                if (configs[i].boneBName != IntPtr.Zero)
+                {
+                    Marshal.FreeHGlobal(configs[i].boneBName);
+                    configs[i].boneBName = IntPtr.Zero;
+                }
             }
         }
     }
