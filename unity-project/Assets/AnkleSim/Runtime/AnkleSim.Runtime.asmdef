@@ -1,0 +1,17 @@
+{
+    "name": "AnkleSim.Runtime",
+    "rootNamespace": "AnkleSim.Runtime",
+    "references": [
+        "AnkleSim.Core",
+        "AnkleSim.Bridge"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
