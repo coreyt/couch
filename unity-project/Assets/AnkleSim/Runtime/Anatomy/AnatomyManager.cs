@@ -27,7 +27,9 @@ namespace AnkleSim.Runtime.Anatomy
                 meshFilter.sharedMesh = mesh;
 
                 var meshRenderer = boneGO.AddComponent<MeshRenderer>();
-                meshRenderer.sharedMaterial = CreateDefaultMaterial();
+                var material = CreateDefaultMaterial();
+                if (material != null)
+                    meshRenderer.sharedMaterial = material;
 
                 _boneObjects[boneType] = boneGO;
             }
@@ -89,6 +91,8 @@ namespace AnkleSim.Runtime.Anatomy
             var shader = Shader.Find("Universal Render Pipeline/Lit");
             if (shader == null)
                 shader = Shader.Find("Standard");
+            if (shader == null)
+                return null;
             return new Material(shader);
         }
     }

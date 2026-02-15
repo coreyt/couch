@@ -2,6 +2,8 @@
     "name": "AnkleSim.Tests.PlayMode",
     "rootNamespace": "AnkleSim.Tests.PlayMode",
     "references": [
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
         "AnkleSim.Core",
         "AnkleSim.Runtime",
         "AnkleSim.Bridge"

@@ -2,6 +2,8 @@
     "name": "AnkleSim.Tests.EditMode",
     "rootNamespace": "AnkleSim.Tests.EditMode",
     "references": [
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner",
         "AnkleSim.Core"
     ],
     "includePlatforms": [

@@ -21,7 +21,9 @@
 *.opendb
 *.VC.db
 .vs/
+.vscode/
 .idea/
+*.slnx
 
 # OS files
 .DS_Store
@@ -32,6 +34,9 @@ Assets/Plugins/**/*.dll
 Assets/Plugins/**/*.so
 Assets/Plugins/**/*.dylib
 Assets/Plugins/**/*.bundle
+
+# Test results
+/[Tt]est[Rr]esults/
 
 # Unity crash reports
 sysinfo.txt
