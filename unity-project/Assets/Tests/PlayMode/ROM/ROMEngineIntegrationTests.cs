@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using NUnit.Framework;
 using UnityEngine;
@@ -18,20 +19,28 @@ namespace AnkleSim.Tests.PlayMode.ROM
         {
             try
             {
-                _sim = new SofaSimulation();
-                _sim.Initialize();
+                SofaNativeBridge.sofa_bridge_get_version();
                 _dllAvailable = true;
             }
-            catch (System.DllNotFoundException)
+            catch (DllNotFoundException)
             {
                 _dllAvailable = false;
             }
+
+            if (!_dllAvailable)
+            {
+                Assert.Ignore("SofaAnkleBridge DLL not available — skipping integration tests");
+                return;
+            }
+
+            _sim = new SofaSimulation();
+            _sim.Initialize();
         }
 
         [TearDown]
         public void TearDown()
         {
-            if (_dllAvailable && _sim != null)
+            if (_sim != null)
             {
                 _sim.Dispose();
                 _sim = null;
@@ -43,12 +52,6 @@ namespace AnkleSim.Tests.PlayMode.ROM
         [Timeout(30000)]
         public IEnumerator StartSweep_AppliesExternalMoment()
         {
-            if (!_dllAvailable)
-            {
-                Assert.Ignore("Native DLL not available");
-                yield break;
-            }
-
             _sim.CreateAnkleScene(0.001f, 0f);
 
             var engine = new ROMEngine(_sim);
@@ -70,12 +73,6 @@ namespace AnkleSim.Tests.PlayMode.ROM
         [Timeout(30000)]
         public IEnumerator StartSweep_RecordsAnglesOverTime()
         {
-            if (!_dllAvailable)
-            {
-                Assert.Ignore("Native DLL not available");
-                yield break;
-            }
-
             _sim.CreateAnkleScene(0.001f, 0f);
 
             var engine = new ROMEngine(_sim);
@@ -102,12 +99,6 @@ namespace AnkleSim.Tests.PlayMode.ROM
         [Timeout(30000)]
         public IEnumerator StopSweep_ReturnsCompletedRecord()
         {
-            if (!_dllAvailable)
-            {
-                Assert.Ignore("Native DLL not available");
-                yield break;
-            }
-
             _sim.CreateAnkleScene(0.001f, 0f);
 
             var engine = new ROMEngine(_sim);
@@ -130,12 +121,6 @@ namespace AnkleSim.Tests.PlayMode.ROM
         [Timeout(30000)]
         public IEnumerator GetCurrentAngle_DuringSimulation_ReturnsLiveValue()
         {
-            if (!_dllAvailable)
-            {
-                Assert.Ignore("Native DLL not available");
-                yield break;
-            }
-
             _sim.CreateAnkleScene(0.001f, 0f);
 
             var engine = new ROMEngine(_sim);
@@ -162,12 +147,6 @@ namespace AnkleSim.Tests.PlayMode.ROM
         [Timeout(30000)]
         public IEnumerator GetCurrentTorque_DuringSimulation_ReturnsLiveValue()
         {
-            if (!_dllAvailable)
-            {
-                Assert.Ignore("Native DLL not available");
-                yield break;
-            }
-
             _sim.CreateAnkleScene(0.001f, 0f);
 
             var engine = new ROMEngine(_sim);
@@ -189,12 +168,6 @@ namespace AnkleSim.Tests.PlayMode.ROM
         [Timeout(30000)]
         public IEnumerator PreOpROM_WithConstraints_RecordsTotalArcNear25()
         {
-            if (!_dllAvailable)
-            {
-                Assert.Ignore("Native DLL not available");
-                yield break;
-            }
-
             var engine = new ROMEngine(_sim);
             var config = new ROMSweepConfig
             {
