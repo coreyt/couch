@@ -22,16 +22,20 @@ using Quat = sofa::type::Quat<double>;
 const SofaLigamentConfig DEFAULT_ANKLE_LIGAMENTS[4] = {
     {"ATFL",
      {15.0, 10.0, -14.0}, {12.0, 8.0, 11.0}, {0, 0, 0}, 0,
-     70.0, 5.0, 0.0},
+     70.0, 5.0, 0.0,
+     nullptr, nullptr, 0.0, 0.0},
     {"PTFL",
      {15.0, -10.0, -14.0}, {12.0, -8.0, 11.0}, {0, 0, 0}, 0,
-     50.0, 5.0, 0.0},
+     50.0, 5.0, 0.0,
+     nullptr, nullptr, 0.0, 0.0},
     {"Deltoid_ant",
      {-12.0, 10.0, -14.0}, {-10.0, 8.0, 11.0}, {0, 0, 0}, 0,
-     90.0, 5.0, 0.0},
+     90.0, 5.0, 0.0,
+     nullptr, nullptr, 0.0, 0.0},
     {"Deltoid_post",
      {-12.0, -10.0, -14.0}, {-10.0, -8.0, 11.0}, {0, 0, 0}, 0,
-     90.0, 5.0, 0.0},
+     90.0, 5.0, 0.0,
+     nullptr, nullptr, 0.0, 0.0},
 };
 const int DEFAULT_ANKLE_LIGAMENT_COUNT = 4;
 
@@ -438,6 +442,8 @@ int fill_frame_snapshot(const AnkleSceneState& scene, SofaFrameSnapshot* out) {
         out->ligament_torque[i] = scene.last_torque[i];
     }
 
+    out->step_time_ms = 0.0f;
+    out->solver_diverged = 0;
     out->step_count = scene.step_count;
     return 0;
 }

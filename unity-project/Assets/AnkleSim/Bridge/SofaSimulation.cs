@@ -42,6 +42,53 @@ namespace AnkleSim.Bridge
                     $"sofa_scene_create_ankle failed: {SofaNativeBridge.GetErrorString()}");
         }
 
+        public void CreateScene(SofaSceneConfig config)
+        {
+            CheckInitialized();
+            int rc = SofaNativeBridge.sofa_scene_create(ref config);
+            if (rc != 0)
+                throw new SofaBridgeException(
+                    $"sofa_scene_create failed: {SofaNativeBridge.GetErrorString()}");
+        }
+
+        public void DestroyScene()
+        {
+            CheckInitialized();
+            SofaNativeBridge.sofa_scene_destroy();
+        }
+
+        public void AddRigidBone(SofaRigidBoneConfig config)
+        {
+            CheckInitialized();
+            int rc = SofaNativeBridge.sofa_add_rigid_bone(ref config);
+            if (rc != 0)
+                throw new SofaBridgeException(
+                    $"sofa_add_rigid_bone failed: {SofaNativeBridge.GetErrorString()}");
+        }
+
+        public void AddLigament(SofaLigamentConfig config)
+        {
+            CheckInitialized();
+            int rc = SofaNativeBridge.sofa_add_ligament(ref config);
+            if (rc != 0)
+                throw new SofaBridgeException(
+                    $"sofa_add_ligament failed: {SofaNativeBridge.GetErrorString()}");
+        }
+
+        public void FinalizeScene()
+        {
+            CheckInitialized();
+            int rc = SofaNativeBridge.sofa_scene_finalize();
+            if (rc != 0)
+                throw new SofaBridgeException(
+                    $"sofa_scene_finalize failed: {SofaNativeBridge.GetErrorString()}");
+        }
+
+        public bool IsSceneReady()
+        {
+            return SofaNativeBridge.sofa_scene_is_ready() == 1;
+        }
+
         public void Step(float dt)
         {
             CheckInitialized();

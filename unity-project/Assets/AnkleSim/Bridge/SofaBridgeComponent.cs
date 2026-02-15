@@ -81,6 +81,8 @@ namespace AnkleSim.Bridge
                 jointAnglesDeg = new double[3],
                 ligamentForce = new double[3],
                 ligamentTorque = new double[3],
+                stepTimeMs = 0f,
+                solverDiverged = 0,
                 stepCount = 0
             };
             return snap;

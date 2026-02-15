@@ -10,6 +10,21 @@
                 "CMAKE_BUILD_TYPE": "Release",
                 "BUILD_TESTS": "ON"
             }
+        },
+        {
+            "name": "windows",
+            "displayName": "Windows (Release)",
+            "binaryDir": "${sourceDir}/build-win",
+            "generator": "Visual Studio 17 2022",
+            "architecture": {
+                "value": "x64",
+                "strategy": "set"
+            },
+            "cacheVariables": {
+                "SOFA_ROOT": "C:/sofa/SOFA_v24.06.00_Win64",
+                "CMAKE_BUILD_TYPE": "Release",
+                "BUILD_TESTS": "OFF"
+            }
         }
     ],
     "buildPresets": [
@@ -17,6 +32,11 @@
             "name": "default",
             "configurePreset": "default",
             "jobs": 0
+        },
+        {
+            "name": "windows",
+            "configurePreset": "windows",
+            "configuration": "Release"
         }
     ],
     "testPresets": [

@@ -19,7 +19,7 @@ extern "C" {
 
 typedef struct {
     int bridge_version_major;  // 0 (pre-release)
-    int bridge_version_minor;  // 1
+    int bridge_version_minor;  // 2
     int bridge_version_patch;  // 0
     int sofa_version_major;    // 24
     int sofa_version_minor;    // 6
@@ -40,9 +40,14 @@ typedef struct {
     double talus_offset[3];
     double fixed_anchor[3];     // used only if use_fixed_anchor=1
     int    use_fixed_anchor;
-    double stiffness;           // N/mm
+    double stiffness;           // N/mm (= linear_stiffness)
     double damping;             // N·s/mm
     double rest_length;         // mm, 0 = auto-compute
+    // --- New bilinear fields (Sprint 2) ---
+    const char* bone_a_name;    // NULL = "Tibia" (backward compat)
+    const char* bone_b_name;    // NULL = "Talus" (backward compat)
+    double toe_stiffness;       // N/mm, 0 = use stiffness
+    double toe_region_strain;   // fraction, 0 = pure linear
 } SofaLigamentConfig;
 
 typedef struct {
@@ -51,8 +56,59 @@ typedef struct {
     double joint_angles_deg[3]; // [sagittal, frontal, transverse]
     double ligament_force[3];   // total force on talus (N)
     double ligament_torque[3];  // total torque on talus (N·mm)
+    float  step_time_ms;        // chrono-measured step time
+    int    solver_diverged;     // 1 if NaN detected in positions
     int    step_count;
 } SofaFrameSnapshot;
+
+// ---- Scene construction API (Sprint 2) ----
+
+typedef struct {
+    float gravity[3];
+    float timestep;
+    int   constraint_iterations;
+    float constraint_tolerance;
+    float rayleigh_stiffness;
+    float rayleigh_mass;
+    float alarm_distance;
+    float contact_distance;
+    float friction_coefficient;
+} SofaSceneConfig;
+
+typedef struct {
+    const char* name;
+    const float* collision_vertices;   // flattened [x,y,z, ...]
+    int          collision_vertex_count;
+    const int*   collision_triangles;   // flattened [i0,i1,i2, ...]
+    int          collision_triangle_count;
+    float        position[3];
+    float        orientation[4];        // quaternion [x,y,z,w]
+    float        mass;
+    int          is_fixed;
+} SofaRigidBoneConfig;
+
+/// Create a new scene with physics pipeline. Must be called after sofa_bridge_init().
+/// @return 0 on success, non-zero on error.
+SOFA_BRIDGE_API int sofa_scene_create(const SofaSceneConfig* config);
+
+/// Destroy the current scene, releasing all resources.
+SOFA_BRIDGE_API void sofa_scene_destroy(void);
+
+/// Check if the scene is finalized and ready for stepping.
+/// @return 1 if ready, 0 if not.
+SOFA_BRIDGE_API int sofa_scene_is_ready(void);
+
+/// Finalize the scene: init root, resolve typed pointers.
+/// @return 0 on success, non-zero on error.
+SOFA_BRIDGE_API int sofa_scene_finalize(void);
+
+/// Add a rigid bone to the scene (between create and finalize).
+/// @return 0 on success, non-zero on error.
+SOFA_BRIDGE_API int sofa_add_rigid_bone(const SofaRigidBoneConfig* config);
+
+/// Add a ligament between two bones (between create and finalize).
+/// @return 0 on success, non-zero on error.
+SOFA_BRIDGE_API int sofa_add_ligament(const SofaLigamentConfig* config);
 
 // ---- Lifecycle ----
 
@@ -72,7 +128,7 @@ SOFA_BRIDGE_API void sofa_bridge_shutdown(void);
 /// Return the last error message, or empty string if none.
 SOFA_BRIDGE_API const char* sofa_bridge_get_error(void);
 
-// ---- Ankle scene ----
+// ---- Ankle scene (legacy API) ----
 
 /// Create an ankle scene with default 4 ligaments.
 /// @param dt Timestep in seconds.

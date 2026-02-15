@@ -27,7 +27,27 @@ namespace AnkleSim.Bridge
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         public static extern IntPtr sofa_bridge_get_error();
 
-        // ---- Ankle scene ----
+        // ---- Scene construction API (Sprint 2) ----
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sofa_scene_create(ref SofaSceneConfig config);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern void sofa_scene_destroy();
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sofa_scene_is_ready();
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sofa_scene_finalize();
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sofa_add_rigid_bone(ref SofaRigidBoneConfig config);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sofa_add_ligament(ref SofaLigamentConfig config);
+
+        // ---- Ankle scene (legacy API) ----
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int sofa_scene_create_ankle(float dt, float gravityZ);

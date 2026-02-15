@@ -13,6 +13,8 @@ namespace AnkleSim.Core.DataModels
         public float stiffness;
         public float damping;
         public float restLength;
+        public float toeStiffness;
+        public float toeRegionStrain;
         public Color displayColor = Color.white;
     }
 }

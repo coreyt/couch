@@ -24,7 +24,7 @@ static const char* get_plugin_dir() {
 TEST(VersionTest, ReturnsValidStruct) {
     SofaBridgeVersion v = sofa_bridge_get_version();
     EXPECT_EQ(v.bridge_version_major, 0);
-    EXPECT_EQ(v.bridge_version_minor, 1);
+    EXPECT_EQ(v.bridge_version_minor, 2);
     EXPECT_EQ(v.bridge_version_patch, 0);
     EXPECT_EQ(v.sofa_version_major, 24);
     EXPECT_EQ(v.sofa_version_minor, 6);

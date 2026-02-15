@@ -46,6 +46,7 @@ find_package(Threads REQUIRED)
 add_library(SofaAnkleBridge SHARED
     src/sofa_ankle_bridge.cpp
     src/ankle_scene.cpp
+    src/scene_builder.cpp
     src/thread_manager.cpp
 )
 
@@ -128,6 +129,28 @@ if(BUILD_TESTS)
         BUILD_RPATH "${SOFA_ROOT}/lib;$<TARGET_FILE_DIR:SofaAnkleBridge>"
     )
 
+    add_executable(test_scene_builder test/test_scene_builder.cpp)
+    target_link_libraries(test_scene_builder
+        PRIVATE
+            SofaAnkleBridge
+            gtest
+    )
+    set_target_properties(test_scene_builder PROPERTIES
+        BUILD_RPATH "${SOFA_ROOT}/lib;$<TARGET_FILE_DIR:SofaAnkleBridge>"
+    )
+
+    add_executable(test_triple_buffer test/test_triple_buffer.cpp)
+    target_include_directories(test_triple_buffer PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(test_triple_buffer
+        PRIVATE
+            SofaAnkleBridge
+            gtest
+            Threads::Threads
+    )
+    set_target_properties(test_triple_buffer PROPERTIES
+        BUILD_RPATH "${SOFA_ROOT}/lib;$<TARGET_FILE_DIR:SofaAnkleBridge>"
+    )
+
     enable_testing()
     add_test(NAME BridgeTests COMMAND test_bridge)
     set_tests_properties(BridgeTests PROPERTIES
@@ -139,6 +162,14 @@ if(BUILD_TESTS)
     )
     add_test(NAME AsyncTests COMMAND test_async)
     set_tests_properties(AsyncTests PROPERTIES
+        ENVIRONMENT "SOFA_PLUGIN_DIR=${SOFA_ROOT}/lib;SOFA_ROOT=${SOFA_ROOT}"
+    )
+    add_test(NAME SceneBuilderTests COMMAND test_scene_builder)
+    set_tests_properties(SceneBuilderTests PROPERTIES
+        ENVIRONMENT "SOFA_PLUGIN_DIR=${SOFA_ROOT}/lib;SOFA_ROOT=${SOFA_ROOT}"
+    )
+    add_test(NAME TripleBufferTests COMMAND test_triple_buffer)
+    set_tests_properties(TripleBufferTests PROPERTIES
         ENVIRONMENT "SOFA_PLUGIN_DIR=${SOFA_ROOT}/lib;SOFA_ROOT=${SOFA_ROOT}"
     )
 endif()
