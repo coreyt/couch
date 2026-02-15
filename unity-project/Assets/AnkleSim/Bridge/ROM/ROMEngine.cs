@@ -19,12 +19,10 @@ namespace AnkleSim.Bridge.ROM
         private float _maxAngle;
         private int _stepCount;
         private int _sweepAxis;
-        private List<Keyframe> _samples;
 
         public ROMEngine(SofaSimulation sim)
         {
             _sim = sim;
-            _samples = new List<Keyframe>();
         }
 
         public float CurrentAngle => _currentAngle;
@@ -43,7 +41,6 @@ namespace AnkleSim.Bridge.ROM
             _currentTorque = torqueNm;
             _maxAngle = 0f;
             _stepCount = 0;
-            _samples.Clear();
         }
 
         /// <summary>
@@ -61,8 +58,6 @@ namespace AnkleSim.Bridge.ROM
             _currentAngle = (float)snap.jointAnglesDeg[_sweepAxis];
             float absAngle = Mathf.Abs(_currentAngle);
             if (absAngle > _maxAngle) _maxAngle = absAngle;
-
-            _samples.Add(new Keyframe(_stepCount * dt, _currentAngle));
 
             return false;
         }
