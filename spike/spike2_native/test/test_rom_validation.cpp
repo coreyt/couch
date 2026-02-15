@@ -29,7 +29,7 @@ protected:
 };
 
 // ---------------------------------------------------------------------------
-// 1. +5 N·m → joint_angles_deg[0] > 5°
+// 1. +0.005 N·m (= 5 N·mm) → joint_angles_deg[0] > 5°
 // ---------------------------------------------------------------------------
 TEST_F(ROMValidationTest, PositiveTorque_ProducesPositiveAngle) {
     ASSERT_EQ(sofa_scene_create_ankle(0.001f, 0.0f), 0) << sofa_bridge_get_error();
@@ -49,7 +49,7 @@ TEST_F(ROMValidationTest, PositiveTorque_ProducesPositiveAngle) {
 }
 
 // ---------------------------------------------------------------------------
-// 2. -5 N·m → joint_angles_deg[0] < -5°
+// 2. -0.005 N·m (= -5 N·mm) → joint_angles_deg[0] < -5°
 // ---------------------------------------------------------------------------
 TEST_F(ROMValidationTest, NegativeTorque_ProducesNegativeAngle) {
     ASSERT_EQ(sofa_scene_create_ankle(0.001f, 0.0f), 0) << sofa_bridge_get_error();
