@@ -53,18 +53,23 @@ namespace AnkleSim.Tests.PlayMode.ROM
         public IEnumerator StartSweep_AppliesExternalMoment()
         {
             _sim.CreateAnkleScene(0.001f, 0f);
+            try
+            {
+                var engine = new ROMEngine(_sim);
+                engine.StartSweep(5.0f, 0);
 
-            var engine = new ROMEngine(_sim);
-            engine.StartSweep(5.0f, 0);
+                for (int i = 0; i < 50; i++)
+                    engine.StepSweep(0.001f);
 
-            for (int i = 0; i < 50; i++)
-                engine.StepSweep(0.001f);
+                Assert.AreNotEqual(0f, engine.CurrentAngle,
+                    "Angle should be non-zero after applying torque");
 
-            Assert.AreNotEqual(0f, engine.CurrentAngle,
-                "Angle should be non-zero after applying torque");
-
-            engine.StopSweep();
-            _sim.DestroyScene();
+                engine.StopSweep();
+            }
+            finally
+            {
+                _sim.DestroyScene();
+            }
             yield return null;
         }
 
@@ -74,23 +79,28 @@ namespace AnkleSim.Tests.PlayMode.ROM
         public IEnumerator StartSweep_RecordsAnglesOverTime()
         {
             _sim.CreateAnkleScene(0.001f, 0f);
+            try
+            {
+                var engine = new ROMEngine(_sim);
+                engine.StartSweep(5.0f, 0);
 
-            var engine = new ROMEngine(_sim);
-            engine.StartSweep(5.0f, 0);
+                for (int i = 0; i < 50; i++)
+                    engine.StepSweep(0.001f);
+                float angleEarly = Mathf.Abs(engine.CurrentAngle);
 
-            for (int i = 0; i < 50; i++)
-                engine.StepSweep(0.001f);
-            float angleEarly = Mathf.Abs(engine.CurrentAngle);
+                for (int i = 0; i < 200; i++)
+                    engine.StepSweep(0.001f);
+                float angleLater = Mathf.Abs(engine.CurrentAngle);
 
-            for (int i = 0; i < 200; i++)
-                engine.StepSweep(0.001f);
-            float angleLater = Mathf.Abs(engine.CurrentAngle);
+                Assert.Greater(angleLater, angleEarly,
+                    "Angle magnitude should increase over time with sustained torque");
 
-            Assert.Greater(angleLater, angleEarly,
-                "Angle magnitude should increase over time with sustained torque");
-
-            engine.StopSweep();
-            _sim.DestroyScene();
+                engine.StopSweep();
+            }
+            finally
+            {
+                _sim.DestroyScene();
+            }
             yield return null;
         }
 
@@ -100,19 +110,23 @@ namespace AnkleSim.Tests.PlayMode.ROM
         public IEnumerator StopSweep_ReturnsCompletedRecord()
         {
             _sim.CreateAnkleScene(0.001f, 0f);
+            try
+            {
+                var engine = new ROMEngine(_sim);
+                engine.StartSweep(5.0f, 0);
 
-            var engine = new ROMEngine(_sim);
-            engine.StartSweep(5.0f, 0);
+                for (int i = 0; i < 200; i++)
+                    engine.StepSweep(0.001f);
 
-            for (int i = 0; i < 200; i++)
-                engine.StepSweep(0.001f);
+                float maxAngle = engine.StopSweep();
 
-            float maxAngle = engine.StopSweep();
-
-            Assert.Greater(maxAngle, 0f,
-                "StopSweep should return a positive max angle");
-
-            _sim.DestroyScene();
+                Assert.Greater(maxAngle, 0f,
+                    "StopSweep should return a positive max angle");
+            }
+            finally
+            {
+                _sim.DestroyScene();
+            }
             yield return null;
         }
 
@@ -122,23 +136,28 @@ namespace AnkleSim.Tests.PlayMode.ROM
         public IEnumerator GetCurrentAngle_DuringSimulation_ReturnsLiveValue()
         {
             _sim.CreateAnkleScene(0.001f, 0f);
+            try
+            {
+                var engine = new ROMEngine(_sim);
+                engine.StartSweep(5.0f, 0);
 
-            var engine = new ROMEngine(_sim);
-            engine.StartSweep(5.0f, 0);
+                for (int i = 0; i < 20; i++)
+                    engine.StepSweep(0.001f);
+                float angle1 = engine.CurrentAngle;
 
-            for (int i = 0; i < 20; i++)
-                engine.StepSweep(0.001f);
-            float angle1 = engine.CurrentAngle;
+                for (int i = 0; i < 100; i++)
+                    engine.StepSweep(0.001f);
+                float angle2 = engine.CurrentAngle;
 
-            for (int i = 0; i < 100; i++)
-                engine.StepSweep(0.001f);
-            float angle2 = engine.CurrentAngle;
+                Assert.AreNotEqual(angle1, angle2,
+                    "CurrentAngle should change between step batches");
 
-            Assert.AreNotEqual(angle1, angle2,
-                "CurrentAngle should change between step batches");
-
-            engine.StopSweep();
-            _sim.DestroyScene();
+                engine.StopSweep();
+            }
+            finally
+            {
+                _sim.DestroyScene();
+            }
             yield return null;
         }
 
@@ -148,18 +167,23 @@ namespace AnkleSim.Tests.PlayMode.ROM
         public IEnumerator GetCurrentTorque_DuringSimulation_ReturnsLiveValue()
         {
             _sim.CreateAnkleScene(0.001f, 0f);
+            try
+            {
+                var engine = new ROMEngine(_sim);
+                float appliedTorque = 5.0f;
+                engine.StartSweep(appliedTorque, 0);
 
-            var engine = new ROMEngine(_sim);
-            float appliedTorque = 5.0f;
-            engine.StartSweep(appliedTorque, 0);
+                engine.StepSweep(0.001f);
 
-            engine.StepSweep(0.001f);
+                Assert.AreEqual(appliedTorque, engine.CurrentTorque, 0.001f,
+                    "CurrentTorque should match the applied torque value");
 
-            Assert.AreEqual(appliedTorque, engine.CurrentTorque, 0.001f,
-                "CurrentTorque should match the applied torque value");
-
-            engine.StopSweep();
-            _sim.DestroyScene();
+                engine.StopSweep();
+            }
+            finally
+            {
+                _sim.DestroyScene();
+            }
             yield return null;
         }
 
