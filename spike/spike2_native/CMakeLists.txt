@@ -172,4 +172,32 @@ if(BUILD_TESTS)
     set_tests_properties(TripleBufferTests PROPERTIES
         ENVIRONMENT "SOFA_PLUGIN_DIR=${SOFA_ROOT}/lib;SOFA_ROOT=${SOFA_ROOT}"
     )
+
+    add_executable(test_joint_angles test/test_joint_angles.cpp)
+    target_link_libraries(test_joint_angles
+        PRIVATE
+            SofaAnkleBridge
+            gtest
+    )
+    set_target_properties(test_joint_angles PROPERTIES
+        BUILD_RPATH "${SOFA_ROOT}/lib;$<TARGET_FILE_DIR:SofaAnkleBridge>"
+    )
+    add_test(NAME JointAngleTests COMMAND test_joint_angles)
+    set_tests_properties(JointAngleTests PROPERTIES
+        ENVIRONMENT "SOFA_PLUGIN_DIR=${SOFA_ROOT}/lib;SOFA_ROOT=${SOFA_ROOT}"
+    )
+
+    add_executable(test_rom_validation test/test_rom_validation.cpp)
+    target_link_libraries(test_rom_validation
+        PRIVATE
+            SofaAnkleBridge
+            gtest
+    )
+    set_target_properties(test_rom_validation PROPERTIES
+        BUILD_RPATH "${SOFA_ROOT}/lib;$<TARGET_FILE_DIR:SofaAnkleBridge>"
+    )
+    add_test(NAME ROMValidationTests COMMAND test_rom_validation)
+    set_tests_properties(ROMValidationTests PROPERTIES
+        ENVIRONMENT "SOFA_PLUGIN_DIR=${SOFA_ROOT}/lib;SOFA_ROOT=${SOFA_ROOT}"
+    )
 endif()
