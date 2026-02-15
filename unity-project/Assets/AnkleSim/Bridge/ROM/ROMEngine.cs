@@ -86,36 +86,48 @@ namespace AnkleSim.Bridge.ROM
             var pfSamples = new List<Keyframe>();
 
             // --- Dorsiflexion sweep (positive torque) ---
-            _sim.CreateAnkleScene(config.dt, config.gravityZ);
-            _sim.ApplyTorque(config.torqueNm, config.sagittalAxis);
-
             float maxDF = 0f;
-            for (int i = 0; i < config.stepsPerDirection; i++)
+            _sim.CreateAnkleScene(config.dt, config.gravityZ);
+            try
             {
-                _sim.Step(config.dt);
-                var snap = _sim.GetSnapshot();
-                float angle = (float)snap.jointAnglesDeg[config.sagittalAxis];
-                float df = Mathf.Max(0f, angle);
-                if (df > maxDF) maxDF = df;
-                dfSamples.Add(new Keyframe(i * config.dt, angle));
+                _sim.ApplyTorque(config.torqueNm, config.sagittalAxis);
+
+                for (int i = 0; i < config.stepsPerDirection; i++)
+                {
+                    _sim.Step(config.dt);
+                    var snap = _sim.GetSnapshot();
+                    float angle = (float)snap.jointAnglesDeg[config.sagittalAxis];
+                    float df = Mathf.Max(0f, angle);
+                    if (df > maxDF) maxDF = df;
+                    dfSamples.Add(new Keyframe(i * config.dt, angle));
+                }
             }
-            _sim.DestroyScene();
+            finally
+            {
+                _sim.DestroyScene();
+            }
 
             // --- Plantarflexion sweep (negative torque, fresh scene) ---
-            _sim.CreateAnkleScene(config.dt, config.gravityZ);
-            _sim.ApplyTorque(-config.torqueNm, config.sagittalAxis);
-
             float maxPF = 0f;
-            for (int i = 0; i < config.stepsPerDirection; i++)
+            _sim.CreateAnkleScene(config.dt, config.gravityZ);
+            try
             {
-                _sim.Step(config.dt);
-                var snap = _sim.GetSnapshot();
-                float angle = (float)snap.jointAnglesDeg[config.sagittalAxis];
-                float pf = Mathf.Max(0f, -angle);
-                if (pf > maxPF) maxPF = pf;
-                pfSamples.Add(new Keyframe((config.stepsPerDirection + i) * config.dt, angle));
+                _sim.ApplyTorque(-config.torqueNm, config.sagittalAxis);
+
+                for (int i = 0; i < config.stepsPerDirection; i++)
+                {
+                    _sim.Step(config.dt);
+                    var snap = _sim.GetSnapshot();
+                    float angle = (float)snap.jointAnglesDeg[config.sagittalAxis];
+                    float pf = Mathf.Max(0f, -angle);
+                    if (pf > maxPF) maxPF = pf;
+                    pfSamples.Add(new Keyframe((config.stepsPerDirection + i) * config.dt, angle));
+                }
             }
-            _sim.DestroyScene();
+            finally
+            {
+                _sim.DestroyScene();
+            }
 
             // --- Build ROMRecord ---
             var allSamples = new List<Keyframe>();
