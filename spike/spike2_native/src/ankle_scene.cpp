@@ -1,4 +1,5 @@
 #include "ankle_scene.h"
+#include "sofa_compat.h"
 
 #include <sofa/simpleapi/SimpleApi.h>
 #include <sofa/simulation/Node.h>
@@ -289,19 +290,19 @@ void apply_ligament_forces(AnkleSceneState& scene) {
     if (!scene.is_active) return;
 
     // Read tibia state
-    auto tibia_pos_data = scene.tibia_mo->read(sofa::core::ConstVecCoordId::position());
+    auto tibia_pos_data = scene.tibia_mo->read(SOFA_CONST_POSITION);
     const RigidCoord& tibia_coord = tibia_pos_data->getValue()[0];
     Vec3 tibia_pos = tibia_coord.getCenter();
     Quat tibia_quat = tibia_coord.getOrientation();
 
     // Read talus state
-    auto talus_pos_data = scene.talus_mo->read(sofa::core::ConstVecCoordId::position());
+    auto talus_pos_data = scene.talus_mo->read(SOFA_CONST_POSITION);
     const RigidCoord& talus_coord = talus_pos_data->getValue()[0];
     Vec3 talus_pos = talus_coord.getCenter();
     Quat talus_quat = talus_coord.getOrientation();
 
     // Read talus velocity
-    auto talus_vel_data = scene.talus_mo->read(sofa::core::ConstVecDerivId::velocity());
+    auto talus_vel_data = scene.talus_mo->read(SOFA_CONST_VELOCITY);
     const RigidDeriv& talus_deriv = talus_vel_data->getValue()[0];
     Vec3 talus_vel = talus_deriv.getVCenter();
 
@@ -368,11 +369,11 @@ void apply_ligament_forces(AnkleSceneState& scene) {
 // ---------------------------------------------------------------------------
 
 void compute_joint_angles(const AnkleSceneState& scene, double angles_deg[3]) {
-    auto tibia_data = scene.tibia_mo->read(sofa::core::ConstVecCoordId::position());
+    auto tibia_data = scene.tibia_mo->read(SOFA_CONST_POSITION);
     const RigidCoord& tibia_coord = tibia_data->getValue()[0];
     Quat tibia_quat = tibia_coord.getOrientation();
 
-    auto talus_data = scene.talus_mo->read(sofa::core::ConstVecCoordId::position());
+    auto talus_data = scene.talus_mo->read(SOFA_CONST_POSITION);
     const RigidCoord& talus_coord = talus_data->getValue()[0];
     Quat talus_quat = talus_coord.getOrientation();
 
@@ -412,7 +413,7 @@ int fill_frame_snapshot(const AnkleSceneState& scene, SofaFrameSnapshot* out) {
     if (!scene.is_active || !out) return 1;
 
     // Tibia
-    auto tibia_data = scene.tibia_mo->read(sofa::core::ConstVecCoordId::position());
+    auto tibia_data = scene.tibia_mo->read(SOFA_CONST_POSITION);
     const RigidCoord& tc = tibia_data->getValue()[0];
     out->tibia.px = tc.getCenter()[0];
     out->tibia.py = tc.getCenter()[1];
@@ -423,7 +424,7 @@ int fill_frame_snapshot(const AnkleSceneState& scene, SofaFrameSnapshot* out) {
     out->tibia.qw = tc.getOrientation()[3];
 
     // Talus
-    auto talus_data = scene.talus_mo->read(sofa::core::ConstVecCoordId::position());
+    auto talus_data = scene.talus_mo->read(SOFA_CONST_POSITION);
     const RigidCoord& ac = talus_data->getValue()[0];
     out->talus.px = ac.getCenter()[0];
     out->talus.py = ac.getCenter()[1];

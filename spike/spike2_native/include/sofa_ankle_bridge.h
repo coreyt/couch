@@ -53,6 +53,7 @@ typedef struct {
 typedef struct {
     SofaRigidFrame tibia;
     SofaRigidFrame talus;
+    SofaRigidFrame calcaneus;
     double joint_angles_deg[3]; // [sagittal, frontal, transverse]
     double ligament_force[3];   // total force on talus (N)
     double ligament_torque[3];  // total torque on talus (N·mm)
@@ -155,6 +156,54 @@ SOFA_BRIDGE_API int sofa_apply_torque(float torque_nm, int axis);
 /// @param out Pointer to snapshot struct to fill.
 /// @return 0 on success, non-zero on error.
 SOFA_BRIDGE_API int sofa_get_frame_snapshot(SofaFrameSnapshot* out);
+
+// ---- Deformable tissue + Resection (Sprint 4) ----
+
+typedef struct {
+    const char* name;           // e.g., "TibiaDeformable"
+    const char* parent_bone;    // rigid bone to attach to (or NULL)
+    const float* vertices;      // flattened [x,y,z, ...]
+    int vertex_count;
+    const int* tetrahedra;      // flattened [i0,i1,i2,i3, ...]
+    int tetra_count;
+    float young_modulus;        // Pa (cortical bone ~17 GPa)
+    float poisson_ratio;        // ~0.3 for bone
+    float mass_density;         // kg/mm³
+} SofaDeformableConfig;
+
+typedef struct {
+    float plane_point[3];
+    float plane_normal[3];
+    const char* bone_name;
+} SofaResectionCommand;
+
+typedef struct {
+    float* vertices;            // caller-allocated
+    int* triangles;             // caller-allocated
+    int vertex_count;           // in/out: capacity in, actual out
+    int triangle_count;         // in/out: capacity in, actual out
+} SofaSurfaceMesh;
+
+/// Add deformable tissue with tetrahedral FEM to the scene.
+/// @return 0 on success, non-zero on error.
+SOFA_BRIDGE_API int sofa_add_deformable_tissue(const SofaDeformableConfig* config);
+
+/// Execute a resection: remove tetrahedra whose centroid is below the cut plane.
+/// @return 0 on success, non-zero on error.
+SOFA_BRIDGE_API int sofa_execute_resection(const SofaResectionCommand* cmd);
+
+/// Get the number of tetrahedra removed in the last resection.
+/// @return count of removed elements.
+SOFA_BRIDGE_API int sofa_get_removed_element_count(void);
+
+/// Check if topology has changed since last query.
+/// @return 1 if changed, 0 if not.
+SOFA_BRIDGE_API int sofa_has_topology_changed(void);
+
+/// Extract the current surface mesh from the deformable tissue.
+/// @param out Pointer to SofaSurfaceMesh with pre-allocated arrays.
+/// @return 0 on success, non-zero on error.
+SOFA_BRIDGE_API int sofa_get_surface_mesh(SofaSurfaceMesh* out);
 
 // ---- Async stepping ----
 

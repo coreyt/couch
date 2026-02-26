@@ -1,4 +1,6 @@
 using System;
+using System.Runtime.InteropServices;
+using UnityEngine;
 
 namespace AnkleSim.Bridge
 {
@@ -135,6 +137,82 @@ namespace AnkleSim.Bridge
                 throw new SofaBridgeException(
                     $"sofa_get_frame_snapshot failed: {SofaNativeBridge.GetErrorString()}");
             return snap;
+        }
+
+        // ---- Deformable tissue + Resection (Sprint 4) ----
+
+        public void AddDeformableTissue(SofaDeformableConfig config)
+        {
+            CheckInitialized();
+            int rc = SofaNativeBridge.sofa_add_deformable_tissue(ref config);
+            if (rc != 0)
+                throw new SofaBridgeException(
+                    $"sofa_add_deformable_tissue failed: {SofaNativeBridge.GetErrorString()}");
+        }
+
+        public int ExecuteResection(Vector3 planePoint, Vector3 planeNormal, string boneName)
+        {
+            CheckInitialized();
+            var cmd = SofaResectionCommand.Create(
+                new float[] { planePoint.x, planePoint.y, planePoint.z },
+                new float[] { planeNormal.x, planeNormal.y, planeNormal.z },
+                boneName);
+            try
+            {
+                int rc = SofaNativeBridge.sofa_execute_resection(ref cmd);
+                if (rc != 0)
+                    throw new SofaBridgeException(
+                        $"sofa_execute_resection failed: {SofaNativeBridge.GetErrorString()}");
+                return SofaNativeBridge.sofa_get_removed_element_count();
+            }
+            finally
+            {
+                SofaResectionCommand.FreeNativePtrs(ref cmd);
+            }
+        }
+
+        public bool HasTopologyChanged()
+        {
+            return SofaNativeBridge.sofa_has_topology_changed() == 1;
+        }
+
+        public Mesh GetSurfaceMesh(int maxVertices = 10000, int maxTriangles = 20000)
+        {
+            CheckInitialized();
+            var nativeMesh = SofaSurfaceMesh.Create(maxVertices, maxTriangles);
+            try
+            {
+                int rc = SofaNativeBridge.sofa_get_surface_mesh(ref nativeMesh);
+                if (rc != 0)
+                    throw new SofaBridgeException(
+                        $"sofa_get_surface_mesh failed: {SofaNativeBridge.GetErrorString()}");
+
+                if (nativeMesh.vertexCount == 0)
+                    return null;
+
+                // Copy native data to managed arrays
+                float[] verts = new float[nativeMesh.vertexCount * 3];
+                Marshal.Copy(nativeMesh.vertices, verts, 0, verts.Length);
+
+                int[] tris = new int[nativeMesh.triangleCount * 3];
+                Marshal.Copy(nativeMesh.triangles, tris, 0, tris.Length);
+
+                // Build Unity mesh
+                var mesh = new Mesh();
+                var vertices = new Vector3[nativeMesh.vertexCount];
+                for (int i = 0; i < nativeMesh.vertexCount; i++)
+                {
+                    vertices[i] = new Vector3(verts[i * 3], verts[i * 3 + 1], verts[i * 3 + 2]);
+                }
+                mesh.vertices = vertices;
+                mesh.triangles = tris;
+                mesh.RecalculateNormals();
+                return mesh;
+            }
+            finally
+            {
+                SofaSurfaceMesh.FreeNativePtrs(ref nativeMesh);
+            }
         }
 
         public void Dispose()

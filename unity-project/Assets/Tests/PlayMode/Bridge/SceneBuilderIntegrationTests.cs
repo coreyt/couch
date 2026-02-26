@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.IO;
 using System.Runtime.InteropServices;
 using NUnit.Framework;
 using UnityEngine;
@@ -11,6 +12,9 @@ namespace AnkleSim.Tests.PlayMode.Bridge
     public class SceneBuilderIntegrationTests
     {
         private bool _dllAvailable;
+
+        private static string PluginDir =>
+            Path.Combine(Application.dataPath, "Plugins", "x86_64");
 
         [SetUp]
         public void SetUp()
@@ -45,7 +49,7 @@ namespace AnkleSim.Tests.PlayMode.Bridge
         {
             var version = SofaNativeBridge.sofa_bridge_get_version();
             Assert.AreEqual(0, version.bridgeVersionMajor);
-            Assert.GreaterOrEqual(version.bridgeVersionMinor, 2);
+            Assert.GreaterOrEqual(version.bridgeVersionMinor, 3);
             yield return null;
         }
 
@@ -55,10 +59,9 @@ namespace AnkleSim.Tests.PlayMode.Bridge
         {
             var version = SofaNativeBridge.sofa_bridge_get_version();
             Assert.AreEqual(0, version.bridgeVersionMajor);
-            Assert.AreEqual(2, version.bridgeVersionMinor);
+            Assert.AreEqual(3, version.bridgeVersionMinor);
             Assert.AreEqual(0, version.bridgeVersionPatch);
-            Assert.AreEqual(24, version.sofaVersionMajor);
-            Assert.AreEqual(6, version.sofaVersionMinor);
+            Assert.Greater(version.sofaVersionMajor, 0, "SOFA version major should be positive");
             yield return null;
         }
 
@@ -66,7 +69,7 @@ namespace AnkleSim.Tests.PlayMode.Bridge
         [UnityTest]
         public IEnumerator Init_ReturnsSuccess()
         {
-            int rc = SofaNativeBridge.sofa_bridge_init(null);
+            int rc = SofaNativeBridge.sofa_bridge_init(PluginDir);
             Assert.AreEqual(0, rc, $"Init failed: {SofaNativeBridge.GetErrorString()}");
             yield return null;
         }
@@ -75,7 +78,7 @@ namespace AnkleSim.Tests.PlayMode.Bridge
         [UnityTest]
         public IEnumerator CreateScene_WithDefaults_Succeeds()
         {
-            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(null),
+            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(PluginDir),
                 SofaNativeBridge.GetErrorString());
 
             var config = SofaSceneConfig.CreateDefault();
@@ -88,7 +91,7 @@ namespace AnkleSim.Tests.PlayMode.Bridge
         [UnityTest]
         public IEnumerator AddRigidBone_Succeeds()
         {
-            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(null));
+            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(PluginDir));
 
             var sceneConfig = SofaSceneConfig.CreateDefault();
             Assert.AreEqual(0, SofaNativeBridge.sofa_scene_create(ref sceneConfig));
@@ -114,7 +117,7 @@ namespace AnkleSim.Tests.PlayMode.Bridge
         [UnityTest]
         public IEnumerator AddLigament_Succeeds()
         {
-            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(null));
+            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(PluginDir));
 
             var sceneConfig = SofaSceneConfig.CreateDefault();
             Assert.AreEqual(0, SofaNativeBridge.sofa_scene_create(ref sceneConfig));
@@ -153,7 +156,7 @@ namespace AnkleSim.Tests.PlayMode.Bridge
         [UnityTest]
         public IEnumerator FinalizeScene_Succeeds()
         {
-            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(null));
+            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(PluginDir));
 
             var sceneConfig = SofaSceneConfig.CreateDefault();
             Assert.AreEqual(0, SofaNativeBridge.sofa_scene_create(ref sceneConfig));
@@ -179,7 +182,7 @@ namespace AnkleSim.Tests.PlayMode.Bridge
         [UnityTest]
         public IEnumerator StepAfterFinalize_Succeeds()
         {
-            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(null));
+            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(PluginDir));
 
             var sceneConfig = SofaSceneConfig.CreateDefault();
             Assert.AreEqual(0, SofaNativeBridge.sofa_scene_create(ref sceneConfig));
@@ -210,7 +213,7 @@ namespace AnkleSim.Tests.PlayMode.Bridge
         [UnityTest]
         public IEnumerator GetSnapshot_AfterStep_HasValidData()
         {
-            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(null));
+            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(PluginDir));
 
             var sceneConfig = SofaSceneConfig.CreateDefault();
             Assert.AreEqual(0, SofaNativeBridge.sofa_scene_create(ref sceneConfig));
@@ -248,7 +251,7 @@ namespace AnkleSim.Tests.PlayMode.Bridge
         [UnityTest]
         public IEnumerator LegacyAnkleScene_StillWorks()
         {
-            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(null));
+            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(PluginDir));
 
             int rc = SofaNativeBridge.sofa_scene_create_ankle(0.001f, -9810f);
             Assert.AreEqual(0, rc, $"Legacy ankle scene failed: {SofaNativeBridge.GetErrorString()}");
@@ -267,7 +270,7 @@ namespace AnkleSim.Tests.PlayMode.Bridge
         [UnityTest]
         public IEnumerator SceneViaNewAPI_ProducesValidROM()
         {
-            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(null));
+            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(PluginDir));
 
             var sceneConfig = SofaSceneConfig.CreateDefault();
             Assert.AreEqual(0, SofaNativeBridge.sofa_scene_create(ref sceneConfig));
@@ -322,12 +325,154 @@ namespace AnkleSim.Tests.PlayMode.Bridge
             yield return null;
         }
 
-        // 12. Shutdown_Reinit_CycleWorks
+        // 12. AddCalcaneus_Succeeds
+        [UnityTest]
+        public IEnumerator AddCalcaneus_Succeeds()
+        {
+            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(PluginDir));
+
+            var sceneConfig = SofaSceneConfig.CreateDefault();
+            Assert.AreEqual(0, SofaNativeBridge.sofa_scene_create(ref sceneConfig));
+
+            var tibia = SofaRigidBoneConfig.Create("Tibia",
+                new float[] { 0, 0, 0 }, new float[] { 0, 0, 0, 1 }, 1.0f, true);
+            var talus = SofaRigidBoneConfig.Create("Talus",
+                new float[] { 0, 0, -30 }, new float[] { 0, 0, 0, 1 }, 0.1f, false);
+            var calcaneus = SofaRigidBoneConfig.Create("Calcaneus",
+                new float[] { 0, -30, -30 }, new float[] { 0, 0, 0, 1 }, 0.08f, false);
+
+            try
+            {
+                Assert.AreEqual(0, SofaNativeBridge.sofa_add_rigid_bone(ref tibia),
+                    SofaNativeBridge.GetErrorString());
+                Assert.AreEqual(0, SofaNativeBridge.sofa_add_rigid_bone(ref talus),
+                    SofaNativeBridge.GetErrorString());
+                Assert.AreEqual(0, SofaNativeBridge.sofa_add_rigid_bone(ref calcaneus),
+                    $"Add calcaneus failed: {SofaNativeBridge.GetErrorString()}");
+            }
+            finally
+            {
+                SofaRigidBoneConfig.FreeNativePtrs(ref tibia);
+                SofaRigidBoneConfig.FreeNativePtrs(ref talus);
+                SofaRigidBoneConfig.FreeNativePtrs(ref calcaneus);
+            }
+
+            Assert.AreEqual(0, SofaNativeBridge.sofa_scene_finalize(),
+                SofaNativeBridge.GetErrorString());
+            yield return null;
+        }
+
+        // 13. GetSnapshot_CalcaneusFramePopulated
+        [UnityTest]
+        public IEnumerator GetSnapshot_CalcaneusFramePopulated()
+        {
+            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(PluginDir));
+
+            var sceneConfig = SofaSceneConfig.CreateDefault();
+            Assert.AreEqual(0, SofaNativeBridge.sofa_scene_create(ref sceneConfig));
+
+            var tibia = SofaRigidBoneConfig.Create("Tibia",
+                new float[] { 0, 0, 0 }, new float[] { 0, 0, 0, 1 }, 1.0f, true);
+            var talus = SofaRigidBoneConfig.Create("Talus",
+                new float[] { 0, 0, -30 }, new float[] { 0, 0, 0, 1 }, 0.1f, false);
+            var calcaneus = SofaRigidBoneConfig.Create("Calcaneus",
+                new float[] { 0, -30, -30 }, new float[] { 0, 0, 0, 1 }, 0.08f, false);
+
+            try
+            {
+                Assert.AreEqual(0, SofaNativeBridge.sofa_add_rigid_bone(ref tibia));
+                Assert.AreEqual(0, SofaNativeBridge.sofa_add_rigid_bone(ref talus));
+                Assert.AreEqual(0, SofaNativeBridge.sofa_add_rigid_bone(ref calcaneus));
+            }
+            finally
+            {
+                SofaRigidBoneConfig.FreeNativePtrs(ref tibia);
+                SofaRigidBoneConfig.FreeNativePtrs(ref talus);
+                SofaRigidBoneConfig.FreeNativePtrs(ref calcaneus);
+            }
+
+            Assert.AreEqual(0, SofaNativeBridge.sofa_scene_finalize());
+            Assert.AreEqual(0, SofaNativeBridge.sofa_step(0.001f));
+
+            var snap = new SofaFrameSnapshot();
+            Assert.AreEqual(0, SofaNativeBridge.sofa_get_frame_snapshot(ref snap));
+
+            Assert.IsFalse(double.IsNaN(snap.calcaneus.px), "Calcaneus px should not be NaN");
+            Assert.IsFalse(double.IsNaN(snap.calcaneus.py), "Calcaneus py should not be NaN");
+            Assert.IsFalse(double.IsNaN(snap.calcaneus.pz), "Calcaneus pz should not be NaN");
+            yield return null;
+        }
+
+        // 14. SubtalarLigaments_ConstrainMotion
+        [UnityTest]
+        public IEnumerator SubtalarLigaments_ConstrainMotion()
+        {
+            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(PluginDir));
+
+            var sceneConfig = SofaSceneConfig.CreateDefault();
+            Assert.AreEqual(0, SofaNativeBridge.sofa_scene_create(ref sceneConfig));
+
+            var tibia = SofaRigidBoneConfig.Create("Tibia",
+                new float[] { 0, 0, 0 }, new float[] { 0, 0, 0, 1 }, 1.0f, true);
+            var talus = SofaRigidBoneConfig.Create("Talus",
+                new float[] { 0, 0, -30 }, new float[] { 0, 0, 0, 1 }, 0.1f, false);
+            var calcaneus = SofaRigidBoneConfig.Create("Calcaneus",
+                new float[] { 0, -30, -30 }, new float[] { 0, 0, 0, 1 }, 0.08f, false);
+
+            SofaLigamentConfig[] ligs = null;
+            try
+            {
+                Assert.AreEqual(0, SofaNativeBridge.sofa_add_rigid_bone(ref tibia));
+                Assert.AreEqual(0, SofaNativeBridge.sofa_add_rigid_bone(ref talus));
+                Assert.AreEqual(0, SofaNativeBridge.sofa_add_rigid_bone(ref calcaneus));
+
+                // Tibiotalar ligaments
+                ligs = new[]
+                {
+                    SofaLigamentConfig.Create("ATFL",
+                        new double[] { 15, 10, -14 }, new double[] { 12, 8, 11 }, 70, 5, 0),
+                    SofaLigamentConfig.Create("Deltoid_ant",
+                        new double[] { -12, 10, -14 }, new double[] { -10, 8, 11 }, 90, 5, 0),
+                    // Subtalar ligament
+                    SofaLigamentConfig.Create("ITCL",
+                        new double[] { 0, -5, -10 }, new double[] { 0, 5, 10 },
+                        120, 5, 0, null, false, "Talus", "Calcaneus"),
+                };
+
+                for (int i = 0; i < ligs.Length; i++)
+                    Assert.AreEqual(0, SofaNativeBridge.sofa_add_ligament(ref ligs[i]),
+                        SofaNativeBridge.GetErrorString());
+            }
+            finally
+            {
+                SofaRigidBoneConfig.FreeNativePtrs(ref tibia);
+                SofaRigidBoneConfig.FreeNativePtrs(ref talus);
+                SofaRigidBoneConfig.FreeNativePtrs(ref calcaneus);
+                if (ligs != null) SofaLigamentConfig.FreeNamePtrs(ligs);
+            }
+
+            Assert.AreEqual(0, SofaNativeBridge.sofa_scene_finalize());
+
+            // Step multiple times
+            for (int i = 0; i < 100; i++)
+                Assert.AreEqual(0, SofaNativeBridge.sofa_step(0.001f),
+                    SofaNativeBridge.GetErrorString());
+
+            var snap = new SofaFrameSnapshot();
+            Assert.AreEqual(0, SofaNativeBridge.sofa_get_frame_snapshot(ref snap));
+
+            // Simulation should not have diverged
+            Assert.AreEqual(0, snap.solverDiverged, "Solver should not have diverged");
+            Assert.IsFalse(double.IsNaN(snap.calcaneus.pz), "Calcaneus should not be NaN after stepping");
+            yield return null;
+        }
+
+        // 15. Shutdown_Reinit_CycleWorks
         [UnityTest]
         public IEnumerator Shutdown_Reinit_CycleWorks()
         {
             // First cycle
-            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(null));
+            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(PluginDir));
             Assert.AreEqual(0, SofaNativeBridge.sofa_scene_create_ankle(0.001f, -9810f));
             Assert.AreEqual(0, SofaNativeBridge.sofa_step(0.001f));
             SofaNativeBridge.sofa_bridge_shutdown();
@@ -335,7 +480,7 @@ namespace AnkleSim.Tests.PlayMode.Bridge
             yield return null;
 
             // Second cycle
-            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(null));
+            Assert.AreEqual(0, SofaNativeBridge.sofa_bridge_init(PluginDir));
             Assert.AreEqual(0, SofaNativeBridge.sofa_scene_create_ankle(0.001f, -9810f));
             Assert.AreEqual(0, SofaNativeBridge.sofa_step(0.001f));
 

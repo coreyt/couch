@@ -13,12 +13,13 @@ if(NOT SOFA_ROOT)
 endif()
 message(STATUS "SOFA_ROOT = ${SOFA_ROOT}")
 
-# SOFA v24.06.00 is built with MinSizeRel; map Release -> MinSizeRel so
+# SOFA pre-built binaries use MinSizeRel; map Release -> MinSizeRel so
 # imported targets resolve correctly.
 set(CMAKE_MAP_IMPORTED_CONFIG_RELEASE MinSizeRel Release "")
 
 # Tell find_package where to look
 list(PREPEND CMAKE_PREFIX_PATH "${SOFA_ROOT}/lib/cmake")
+list(PREPEND CMAKE_MODULE_PATH "${SOFA_ROOT}/lib/cmake/Modules")
 
 # --- Dependencies ---
 find_package(Eigen3 REQUIRED)
@@ -39,6 +40,13 @@ find_package(Sofa.Component.ODESolver.Backward REQUIRED)
 find_package(Sofa.Component.LinearSolver.Iterative REQUIRED)
 find_package(Sofa.Component.Mapping.Linear REQUIRED)
 find_package(Sofa.Component.Topology.Container.Constant REQUIRED)
+# Sprint 4: Deformable tissue + resection
+find_package(Sofa.Component.Topology.Container.Dynamic REQUIRED)
+find_package(Sofa.Component.Topology.Mapping REQUIRED)
+find_package(Sofa.Component.SolidMechanics.FEM.Elastic REQUIRED)
+find_package(Sofa.Component.LinearSolver.Ordering REQUIRED)
+find_package(Sofa.Component.LinearSolver.Direct REQUIRED)
+# Sofa.Component.IO.Mesh omitted — requires ZLIB and not needed for programmatic meshes
 
 # --- Shared library ---
 find_package(Threads REQUIRED)
@@ -87,6 +95,11 @@ target_link_libraries(SofaAnkleBridge
         Sofa.Component.LinearSolver.Iterative
         Sofa.Component.Mapping.Linear
         Sofa.Component.Topology.Container.Constant
+        Sofa.Component.Topology.Container.Dynamic
+        Sofa.Component.Topology.Mapping
+        Sofa.Component.SolidMechanics.FEM.Elastic
+        Sofa.Component.LinearSolver.Ordering
+        Sofa.Component.LinearSolver.Direct
         Eigen3::Eigen
         Threads::Threads
 )
@@ -171,6 +184,16 @@ if(BUILD_TESTS)
         BUILD_RPATH "${SOFA_ROOT}/lib;$<TARGET_FILE_DIR:SofaAnkleBridge>"
     )
 
+    add_executable(test_resection test/test_resection.cpp)
+    target_link_libraries(test_resection
+        PRIVATE
+            SofaAnkleBridge
+            gtest
+    )
+    set_target_properties(test_resection PROPERTIES
+        BUILD_RPATH "${SOFA_ROOT}/lib;$<TARGET_FILE_DIR:SofaAnkleBridge>"
+    )
+
     enable_testing()
     add_test(NAME BridgeTests COMMAND test_bridge)
     set_tests_properties(BridgeTests PROPERTIES
@@ -198,6 +221,10 @@ if(BUILD_TESTS)
     )
     add_test(NAME ROMValidationTests COMMAND test_rom_validation)
     set_tests_properties(ROMValidationTests PROPERTIES
+        ENVIRONMENT "SOFA_PLUGIN_DIR=${SOFA_ROOT}/lib;SOFA_ROOT=${SOFA_ROOT}"
+    )
+    add_test(NAME ResectionTests COMMAND test_resection)
+    set_tests_properties(ResectionTests PROPERTIES
         ENVIRONMENT "SOFA_PLUGIN_DIR=${SOFA_ROOT}/lib;SOFA_ROOT=${SOFA_ROOT}"
     )
 endif()

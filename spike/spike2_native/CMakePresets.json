@@ -21,7 +21,9 @@
                 "strategy": "set"
             },
             "cacheVariables": {
-                "SOFA_ROOT": "C:/sofa/SOFA_v24.06.00_Win64",
+                "SOFA_ROOT": "C:/sofa/SOFA_v25.12.00_Win64",
+                "EIGEN3_INCLUDE_DIR": "${sourceDir}/third_party/eigen3",
+                "BOOST_INCLUDEDIR": "${sourceDir}/third_party",
                 "CMAKE_BUILD_TYPE": "Release",
                 "BUILD_TESTS": "OFF"
             }

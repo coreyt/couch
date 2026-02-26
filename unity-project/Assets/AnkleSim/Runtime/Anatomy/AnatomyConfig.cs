@@ -1,27 +1,29 @@
+using System;
 using UnityEngine;
 using AnkleSim.Core.DataModels;
 
 namespace AnkleSim.Runtime.Anatomy
 {
+    [Serializable]
+    public struct BoneMeshEntry
+    {
+        public BoneType boneType;
+        public Mesh mesh;
+    }
+
     [CreateAssetMenu(fileName = "AnatomyConfig", menuName = "AnkleSim/Anatomy Config")]
     public class AnatomyConfig : ScriptableObject
     {
-        public Mesh tibiaMesh;
-        public Mesh talusMesh;
-        public Mesh fibulaMesh;
-        public Mesh calcaneusMesh;
+        public BoneMeshEntry[] boneMeshes;
         public LigamentConfig[] ligaments;
 
         public Mesh GetMeshForBone(BoneType boneType)
         {
-            switch (boneType)
-            {
-                case BoneType.Tibia: return tibiaMesh;
-                case BoneType.Talus: return talusMesh;
-                case BoneType.Fibula: return fibulaMesh;
-                case BoneType.Calcaneus: return calcaneusMesh;
-                default: return null;
-            }
+            if (boneMeshes == null) return null;
+            foreach (var entry in boneMeshes)
+                if (entry.boneType == boneType)
+                    return entry.mesh;
+            return null;
         }
     }
 }

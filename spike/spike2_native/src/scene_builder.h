@@ -6,6 +6,7 @@
 #include <sofa/simulation/Node.h>
 #include <sofa/component/mechanicalload/ConstantForceField.h>
 #include <sofa/defaulttype/RigidTypes.h>
+#include <sofa/defaulttype/VecTypes.h>
 #include <sofa/core/behavior/MechanicalState.h>
 
 #include <string>
@@ -40,6 +41,25 @@ struct LigamentState2 {
     double toe_region_strain; // fraction, 0 = pure linear
 };
 
+// Forward declarations for SOFA topology types (resolved at finalize)
+namespace sofa::component::topology::container::dynamic {
+    class TetrahedronSetTopologyContainer;
+    class TetrahedronSetTopologyModifier;
+}
+
+// Internal deformable tissue runtime state
+struct DeformableState {
+    std::string name;
+    std::string parent_bone;
+    sofa::simulation::NodeSPtr node;
+    sofa::simulation::NodeSPtr surface_node;
+    sofa::component::topology::container::dynamic::TetrahedronSetTopologyContainer* topo = nullptr;
+    sofa::component::topology::container::dynamic::TetrahedronSetTopologyModifier* modifier = nullptr;
+    sofa::core::behavior::MechanicalState<sofa::defaulttype::Vec3Types>* mo = nullptr;
+    bool topology_dirty = false;
+    int last_removed_count = 0;
+};
+
 enum class SceneBuilderState {
     Empty,
     Created,
@@ -61,6 +81,24 @@ public:
     /// Add a ligament between two bones. Must be called after createScene, before finalize.
     /// @return 0 on success, non-zero on error.
     int addLigament(const SofaLigamentConfig& config);
+
+    /// Add deformable tissue with tetrahedral FEM. Must be called after createScene, before finalize.
+    /// @return 0 on success, non-zero on error.
+    int addDeformableTissue(const SofaDeformableConfig& config);
+
+    /// Execute a resection: remove tetrahedra whose centroid is below the cut plane.
+    /// @return 0 on success, non-zero on error.
+    int executeResection(const SofaResectionCommand& cmd);
+
+    /// Extract the current surface mesh from the deformable tissue.
+    /// @return 0 on success, non-zero on error.
+    int getSurfaceMesh(SofaSurfaceMesh* out) const;
+
+    /// Check if topology has changed since last query.
+    bool hasTopologyChanged() const;
+
+    /// Get the number of tetrahedra removed in the last resection.
+    int removedElementCount() const;
 
     /// Finalize the scene: initRoot, resolve typed pointers.
     /// @return 0 on success, non-zero on error.
@@ -106,6 +144,7 @@ private:
 
     std::vector<BoneState> _bones;
     std::vector<LigamentState2> _ligaments;
+    std::vector<DeformableState> _deformables;
 
     int _step_count = 0;
     std::array<double, 3> _last_force = {0, 0, 0};
@@ -113,6 +152,9 @@ private:
     std::string _last_error;
 
     void setError(const std::string& msg) { _last_error = msg; }
+
+    // Fill a single bone's rigid frame from SOFA state
+    void fillBoneFrame(const char* name, SofaRigidFrame* frame) const;
 
     // Joint angle computation from first two bones
     void computeJointAngles(double angles_deg[3]) const;

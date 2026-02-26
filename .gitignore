@@ -1,0 +1,17 @@
+# Aural
+.aural/
+
+# Build artifacts
+spike/spike2_native/build/
+spike/spike2_native/build-win/
+
+# Unity
+unity-project/Library/
+unity-project/Temp/
+unity-project/Logs/
+unity-project/UserSettings/
+unity-project/TestResults/
+
+# OS
+.DS_Store
+Thumbs.db

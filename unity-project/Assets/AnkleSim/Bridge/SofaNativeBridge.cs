@@ -47,6 +47,23 @@ namespace AnkleSim.Bridge
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
         public static extern int sofa_add_ligament(ref SofaLigamentConfig config);
 
+        // ---- Deformable tissue + Resection (Sprint 4) ----
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sofa_add_deformable_tissue(ref SofaDeformableConfig config);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sofa_execute_resection(ref SofaResectionCommand cmd);
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sofa_get_removed_element_count();
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sofa_has_topology_changed();
+
+        [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+        public static extern int sofa_get_surface_mesh(ref SofaSurfaceMesh mesh);
+
         // ---- Ankle scene (legacy API) ----
 
         [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]

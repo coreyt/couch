@@ -32,13 +32,14 @@ static void set_error(const std::string& msg) {
 // Check if positions contain NaN (solver divergence)
 static bool check_diverged(const SofaFrameSnapshot& snap) {
     return std::isnan(snap.tibia.px) || std::isnan(snap.tibia.py) || std::isnan(snap.tibia.pz) ||
-           std::isnan(snap.talus.px) || std::isnan(snap.talus.py) || std::isnan(snap.talus.pz);
+           std::isnan(snap.talus.px) || std::isnan(snap.talus.py) || std::isnan(snap.talus.pz) ||
+           std::isnan(snap.calcaneus.px) || std::isnan(snap.calcaneus.py) || std::isnan(snap.calcaneus.pz);
 }
 
 SofaBridgeVersion sofa_bridge_get_version() {
     SofaBridgeVersion v = {};
     v.bridge_version_major = 0;
-    v.bridge_version_minor = 2;
+    v.bridge_version_minor = 3;
     v.bridge_version_patch = 0;
     v.sofa_version_major = 24;
     v.sofa_version_minor = 6;
@@ -58,9 +59,55 @@ int sofa_bridge_init(const char* plugin_dir) {
         if (plugin_dir) {
             auto& pm = sofa::helper::system::PluginManager::getInstance();
             pm.init(std::string(plugin_dir));
-        }
 
-        sofa::simpleapi::importPlugin("Sofa.Component.StateContainer");
+            // Pre-load all required SOFA plugins by full path
+            const char* plugins[] = {
+                "Sofa.Component.StateContainer",
+                "Sofa.Component.Mass",
+                "Sofa.Component.ODESolver.Backward",
+                "Sofa.Component.LinearSolver.Iterative",
+                "Sofa.Component.LinearSolver.Direct",
+                "Sofa.Component.Constraint.Lagrangian.Solver",
+                "Sofa.Component.Constraint.Lagrangian.Correction",
+                "Sofa.Component.Constraint.Projective",
+                "Sofa.Component.Collision.Detection.Algorithm",
+                "Sofa.Component.Collision.Detection.Intersection",
+                "Sofa.Component.Collision.Geometry",
+                "Sofa.Component.Collision.Response.Contact",
+                "Sofa.Component.AnimationLoop",
+                "Sofa.Component.Mapping.Linear",
+                "Sofa.Component.Topology.Container.Constant",
+                "Sofa.Component.Topology.Container.Dynamic",
+                "Sofa.Component.Topology.Mapping",
+                "Sofa.Component.MechanicalLoad",
+                "Sofa.Component.SolidMechanics.FEM.Elastic",
+            };
+
+#ifdef _WIN32
+            const std::string ext = ".dll";
+            const std::string sep = "\\";
+#else
+            const std::string ext = ".so";
+            const std::string sep = "/";
+#endif
+            std::string dir(plugin_dir);
+            std::string load_errors;
+            for (const auto& p : plugins) {
+                std::string fullPath = dir + sep + p + ext;
+                std::ostringstream errlog;
+                auto status = pm.loadPluginByPath(fullPath, &errlog);
+                if (status != sofa::helper::system::PluginManager::PluginLoadStatus::SUCCESS &&
+                    status != sofa::helper::system::PluginManager::PluginLoadStatus::ALREADY_LOADED) {
+                    load_errors += std::string("  ") + p + ": " + errlog.str() + "\n";
+                }
+            }
+            if (!load_errors.empty()) {
+                set_error("Plugin loading errors (plugin_dir=" + dir + "):\n" + load_errors);
+                return 1;
+            }
+        } else {
+            sofa::simpleapi::importPlugin("Sofa.Component.StateContainer");
+        }
 
         auto sim = sofa::simpleapi::createSimulation("DAG");
         g_root = sofa::simpleapi::createRootNode(sim, "root");
@@ -332,6 +379,110 @@ int sofa_add_ligament(const SofaLigamentConfig* config) {
         return 1;
     } catch (...) {
         set_error("Add ligament failed: unknown error");
+        return 1;
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Deformable tissue + Resection API (Sprint 4)
+// ---------------------------------------------------------------------------
+
+int sofa_add_deformable_tissue(const SofaDeformableConfig* config) {
+    if (!g_initialized) {
+        set_error("Not initialized");
+        return 1;
+    }
+    if (!g_use_builder) {
+        set_error("No scene created via new API — call sofa_scene_create() first");
+        return 1;
+    }
+    if (!config) {
+        set_error("Null config pointer");
+        return 1;
+    }
+
+    try {
+        int rc = g_builder.addDeformableTissue(*config);
+        if (rc != 0) {
+            set_error(g_builder.lastError());
+            return 1;
+        }
+        g_last_error.clear();
+        return 0;
+    } catch (const std::exception& e) {
+        set_error(std::string("Add deformable tissue failed: ") + e.what());
+        return 1;
+    } catch (...) {
+        set_error("Add deformable tissue failed: unknown error");
+        return 1;
+    }
+}
+
+int sofa_execute_resection(const SofaResectionCommand* cmd) {
+    if (!g_initialized) {
+        set_error("Not initialized");
+        return 1;
+    }
+    if (!g_use_builder) {
+        set_error("No scene created via new API");
+        return 1;
+    }
+    if (!cmd) {
+        set_error("Null command pointer");
+        return 1;
+    }
+
+    // Wait for any in-progress async step to avoid data race
+    g_thread_manager.wait();
+
+    try {
+        int rc = g_builder.executeResection(*cmd);
+        if (rc != 0) {
+            set_error(g_builder.lastError());
+            return 1;
+        }
+        g_last_error.clear();
+        return 0;
+    } catch (const std::exception& e) {
+        set_error(std::string("Resection failed: ") + e.what());
+        return 1;
+    } catch (...) {
+        set_error("Resection failed: unknown error");
+        return 1;
+    }
+}
+
+int sofa_get_removed_element_count() {
+    return g_builder.removedElementCount();
+}
+
+int sofa_has_topology_changed() {
+    return g_builder.hasTopologyChanged() ? 1 : 0;
+}
+
+int sofa_get_surface_mesh(SofaSurfaceMesh* out) {
+    if (!g_initialized) {
+        set_error("Not initialized");
+        return 1;
+    }
+    if (!out) {
+        set_error("Null output pointer");
+        return 1;
+    }
+
+    try {
+        int rc = g_builder.getSurfaceMesh(out);
+        if (rc != 0) {
+            set_error("Failed to get surface mesh");
+            return 1;
+        }
+        g_last_error.clear();
+        return 0;
+    } catch (const std::exception& e) {
+        set_error(std::string("Get surface mesh failed: ") + e.what());
+        return 1;
+    } catch (...) {
+        set_error("Get surface mesh failed: unknown error");
         return 1;
     }
 }

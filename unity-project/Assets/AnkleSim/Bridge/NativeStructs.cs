@@ -106,6 +106,7 @@ namespace AnkleSim.Bridge
     {
         public SofaRigidFrame tibia;
         public SofaRigidFrame talus;
+        public SofaRigidFrame calcaneus;
 
         [MarshalAs(UnmanagedType.ByValArray, SizeConst = 3)]
         public double[] jointAnglesDeg;
@@ -150,6 +151,140 @@ namespace AnkleSim.Bridge
                 contactDistance = 3.0f,
                 frictionCoefficient = 0.0f
             };
+        }
+    }
+
+    // ---- Deformable tissue + Resection (Sprint 4) ----
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SofaDeformableConfig
+    {
+        public IntPtr name;
+        public IntPtr parentBone;
+        public IntPtr vertices;     // float* flattened [x,y,z, ...]
+        public int vertexCount;
+        public IntPtr tetrahedra;   // int* flattened [i0,i1,i2,i3, ...]
+        public int tetraCount;
+        public float youngModulus;
+        public float poissonRatio;
+        public float massDensity;
+
+        public static SofaDeformableConfig Create(string tissueName,
+            float[] verts, int[] tetras,
+            float youngModulus, float poissonRatio, float massDensity,
+            string parentBone = null)
+        {
+            var cfg = new SofaDeformableConfig
+            {
+                name = Marshal.StringToHGlobalAnsi(tissueName),
+                parentBone = parentBone != null ? Marshal.StringToHGlobalAnsi(parentBone) : IntPtr.Zero,
+                vertexCount = verts.Length / 3,
+                tetraCount = tetras.Length / 4,
+                youngModulus = youngModulus,
+                poissonRatio = poissonRatio,
+                massDensity = massDensity
+            };
+
+            cfg.vertices = Marshal.AllocHGlobal(verts.Length * sizeof(float));
+            Marshal.Copy(verts, 0, cfg.vertices, verts.Length);
+
+            cfg.tetrahedra = Marshal.AllocHGlobal(tetras.Length * sizeof(int));
+            Marshal.Copy(tetras, 0, cfg.tetrahedra, tetras.Length);
+
+            return cfg;
+        }
+
+        public static void FreeNativePtrs(ref SofaDeformableConfig cfg)
+        {
+            if (cfg.name != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(cfg.name);
+                cfg.name = IntPtr.Zero;
+            }
+            if (cfg.parentBone != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(cfg.parentBone);
+                cfg.parentBone = IntPtr.Zero;
+            }
+            if (cfg.vertices != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(cfg.vertices);
+                cfg.vertices = IntPtr.Zero;
+            }
+            if (cfg.tetrahedra != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(cfg.tetrahedra);
+                cfg.tetrahedra = IntPtr.Zero;
+            }
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SofaResectionCommand
+    {
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 3)]
+        public float[] planePoint;
+
+        [MarshalAs(UnmanagedType.ByValArray, SizeConst = 3)]
+        public float[] planeNormal;
+
+        public IntPtr boneName;
+
+        public static SofaResectionCommand Create(float[] planePoint, float[] planeNormal,
+            string boneName = null)
+        {
+            return new SofaResectionCommand
+            {
+                planePoint = planePoint,
+                planeNormal = planeNormal,
+                boneName = boneName != null ? Marshal.StringToHGlobalAnsi(boneName) : IntPtr.Zero
+            };
+        }
+
+        public static void FreeNativePtrs(ref SofaResectionCommand cmd)
+        {
+            if (cmd.boneName != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(cmd.boneName);
+                cmd.boneName = IntPtr.Zero;
+            }
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SofaSurfaceMesh
+    {
+        public IntPtr vertices;     // float* caller-allocated
+        public IntPtr triangles;    // int* caller-allocated
+        public int vertexCount;     // in/out: capacity in, actual out
+        public int triangleCount;   // in/out: capacity in, actual out
+
+        public static SofaSurfaceMesh Create(int maxVertices, int maxTriangles)
+        {
+            var mesh = new SofaSurfaceMesh
+            {
+                vertexCount = maxVertices,
+                triangleCount = maxTriangles
+            };
+
+            mesh.vertices = Marshal.AllocHGlobal(maxVertices * 3 * sizeof(float));
+            mesh.triangles = Marshal.AllocHGlobal(maxTriangles * 3 * sizeof(int));
+
+            return mesh;
+        }
+
+        public static void FreeNativePtrs(ref SofaSurfaceMesh mesh)
+        {
+            if (mesh.vertices != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(mesh.vertices);
+                mesh.vertices = IntPtr.Zero;
+            }
+            if (mesh.triangles != IntPtr.Zero)
+            {
+                Marshal.FreeHGlobal(mesh.triangles);
+                mesh.triangles = IntPtr.Zero;
+            }
         }
     }
 

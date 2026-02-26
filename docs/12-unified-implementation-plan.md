@@ -1125,6 +1125,79 @@ def test_resection_preserves_boundary_conditions():
 
 ---
 
+### Sprint 4.5: Foot Bone Anatomy + Calcaneus Simulation (Week 6.5) ✓ DONE
+
+#### 4.5.1 Mesh Acquisition & BoneType Expansion (RED → GREEN → REFACTOR)
+
+**Tests (EditMode):**
+```csharp
+[Test] public void BoneType_HasExpected28Values()
+[Test] public void BoneType_IsSimulated_TrueForTibiaTalusCalcaneus()
+[Test] public void BoneType_IsSimulated_FalseForContextBones()
+[Test] public void AnatomyConfig_GetMeshForBone_ReturnsCorrectMesh()
+[Test] public void AnatomyConfig_GetMeshForBone_ReturnsNullForMissingBone()
+```
+
+**Implementation:** Download 23 additional right-foot bone STLs from BodyParts3D. Expand `BoneType` enum from 4 to 28 values. Add `IsSimulated()` extension method. Refactor `AnatomyConfig` from hardcoded mesh fields to `BoneMeshEntry[]` array.
+
+#### 4.5.2 SofaFrameSnapshot Calcaneus & fillSnapshot Refactor (RED → GREEN → REFACTOR)
+
+**Tests (C++ / Google Test):**
+```cpp
+TEST(SceneBuilder, FillSnapshot_WithCalcaneus_PopulatesCalcaneusFrame)
+TEST(SceneBuilder, FillSnapshot_WithoutCalcaneus_CalcaneusFrameIsZero)
+TEST(SceneBuilder, FillSnapshot_NameBasedLookup_IndependentOfBoneOrder)
+```
+
+**Implementation:** Add calcaneus frame to `SofaFrameSnapshot` (ABI-breaking, version bump to 0.3.0). Refactor `fillSnapshot()` from index-based to name-based bone lookup via `findBone()`.
+
+#### 4.5.3 Calcaneus Simulation & Subtalar Ligaments (RED → GREEN → REFACTOR)
+
+**Tests (C++ / Google Test):**
+```cpp
+TEST(SceneBuilder, AddCalcaneus_CreatesThirdBone)
+TEST(SceneBuilder, SubtalarLigaments_ConnectTalusAndCalcaneus)
+TEST(SceneBuilder, ThreeBoneScene_1000Steps_Stable)
+TEST(SceneBuilder, SubtalarJointAngle_RespondsToTorque)
+```
+
+**Tests (PlayMode):**
+```csharp
+[UnityTest] public IEnumerator SofaSimulation_AddCalcaneus_Succeeds()
+[UnityTest] public IEnumerator SofaSimulation_GetSnapshot_CalcaneusFramePopulated()
+[UnityTest] public IEnumerator SofaSimulation_SubtalarLigaments_ConstrainMotion()
+```
+
+**Implementation:** Add calcaneus as free rigid body via existing `sofa_add_rigid_bone()` API. Add 4 subtalar ligaments (ITCL, CL, ATCL, PTCL) via existing `sofa_add_ligament()` API. Attachment offsets determined empirically from BodyParts3D mesh geometry.
+
+**Requirements:** Anatomical context for surgeon demonstrations, subtalar joint modeling.
+
+---
+
+### Sprint 4.6: Unity Bone Visualization (Week 6.75) ✓ DONE
+
+#### 4.6.1 BoneVisualizer & Materials (RED → GREEN → REFACTOR)
+
+**Tests (EditMode):**
+```csharp
+[Test] public void BoneMaterial_SimulatedBones_AreOpaque()
+[Test] public void BoneMaterial_ContextBones_AreSemiTransparent()
+```
+
+**Tests (PlayMode):**
+```csharp
+[UnityTest] public IEnumerator BoneVisualizer_UpdatesTransformFromSnapshot()
+[UnityTest] public IEnumerator BoneVisualizer_StaticBonesDoNotMove()
+[UnityTest] public IEnumerator AnatomyManager_28Bones_AllRendered()
+[UnityTest] public IEnumerator OrbitCamera_FramesBounds_Correctly()
+```
+
+**Implementation:** `BoneVisualizer` MonoBehaviour reads `SofaFrameSnapshot` each frame and updates transforms for simulated bones. `BoneMaterialConfig` differentiates simulated (opaque) vs context (semi-transparent) bones. `OrbitCamera` for ankle visualization. Import all 28 STL files as Unity mesh assets.
+
+**Requirements:** Visual ankle context for surgeon demonstrations.
+
+---
+
 ### Sprint 5: Implant System (Week 7)
 
 #### 5.1 Implant Library & Data (RED → GREEN → REFACTOR)
@@ -1338,11 +1411,13 @@ def test_implant_contact_pressure():
 | 2 | 0 | 6 | 12 | 7 | **25** |
 | 3 | 8 | 6 | 3 | 8 | **25** |
 | 4 | 7 | 7 | 6 | 4 | **24** |
+| 4.5 | 5 | 4 | 0 | 0 | **9** |
+| 4.6 | 2 | 4 | 0 | 0 | **6** |
 | 5 | 12 | 4 | 0 | 0 | **16** |
 | 6 | 7 | 3 | 0 | 3 | **13** |
 | 7 | 7 | 4 | 0 | 0 | **11** |
 | 8 | 0 | 12 | 0 | 5 | **17** |
-| **Total** | **57** | **56** | **29** | **27** | **169** |
+| **Total** | **64** | **64** | **29** | **27** | **184** |
 
 ### Continuous Integration
 

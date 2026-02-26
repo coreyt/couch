@@ -1,8 +1,13 @@
 #include "scene_builder.h"
+#include "sofa_compat.h"
 
 #include <sofa/simpleapi/SimpleApi.h>
 #include <sofa/simulation/Node.h>
 #include <sofa/defaulttype/RigidTypes.h>
+#include <sofa/defaulttype/VecTypes.h>
+#include <sofa/component/topology/container/dynamic/TetrahedronSetTopologyContainer.h>
+#include <sofa/component/topology/container/dynamic/TetrahedronSetTopologyModifier.h>
+#include <sofa/component/topology/container/dynamic/TriangleSetTopologyContainer.h>
 
 #include <algorithm>
 #include <cmath>
@@ -303,6 +308,33 @@ int SceneBuilder::finalize() {
         }
     }
 
+    // Resolve typed pointers for deformable tissues
+    for (auto& ds : _deformables) {
+        ds.topo = dynamic_cast<
+            sofa::component::topology::container::dynamic::TetrahedronSetTopologyContainer*>(
+            ds.node->getObject("TetraTopo"));
+        ds.modifier = dynamic_cast<
+            sofa::component::topology::container::dynamic::TetrahedronSetTopologyModifier*>(
+            ds.node->getObject("TetraModifier"));
+
+        std::string mo_name = ds.name + "MO";
+        ds.mo = dynamic_cast<sofa::core::behavior::MechanicalState<sofa::defaulttype::Vec3Types>*>(
+            ds.node->getObject(mo_name));
+
+        if (!ds.topo) {
+            setError("Failed to resolve TetrahedronSetTopologyContainer for '" + ds.name + "'");
+            return 1;
+        }
+        if (!ds.modifier) {
+            setError("Failed to resolve TetrahedronSetTopologyModifier for '" + ds.name + "'");
+            return 1;
+        }
+        if (!ds.mo) {
+            setError("Failed to resolve MechanicalObject for deformable '" + ds.name + "'");
+            return 1;
+        }
+    }
+
     // Auto-compute rest lengths for ligaments that have rest_length == 0
     for (auto& lig : _ligaments) {
         if (lig.rest_length <= 0.0) {
@@ -360,7 +392,7 @@ void SceneBuilder::applyLigamentForces() {
             const BoneState* ba = findBone(lig.bone_a_name);
             if (!ba || !ba->mo) continue;
 
-            auto ba_pos_data = ba->mo->read(sofa::core::ConstVecCoordId::position());
+            auto ba_pos_data = ba->mo->read(SOFA_CONST_POSITION);
             const RigidCoord& ba_coord = ba_pos_data->getValue()[0];
             bone_a_pos = ba_coord.getCenter();
             bone_a_quat = ba_coord.getOrientation();
@@ -373,12 +405,12 @@ void SceneBuilder::applyLigamentForces() {
         const BoneState* bb = findBone(lig.bone_b_name);
         if (!bb || !bb->mo) continue;
 
-        auto bb_pos_data = bb->mo->read(sofa::core::ConstVecCoordId::position());
+        auto bb_pos_data = bb->mo->read(SOFA_CONST_POSITION);
         const RigidCoord& bb_coord = bb_pos_data->getValue()[0];
         Vec3 bone_b_pos = bb_coord.getCenter();
         Quat bone_b_quat = bb_coord.getOrientation();
 
-        auto bb_vel_data = bb->mo->read(sofa::core::ConstVecDerivId::velocity());
+        auto bb_vel_data = bb->mo->read(SOFA_CONST_VELOCITY);
         const RigidDeriv& bb_deriv = bb_vel_data->getValue()[0];
         Vec3 bone_b_vel = bb_deriv.getVCenter();
 
@@ -508,37 +540,10 @@ int SceneBuilder::applyTorque(const char* bone_name, float torque_nm, int axis) 
 int SceneBuilder::fillSnapshot(SofaFrameSnapshot* out) const {
     if (_state != SceneBuilderState::Finalized || !out) return 1;
 
-    // Need at least 2 bones for tibia/talus snapshot
-    // Fill tibia from first bone, talus from second bone
-    if (_bones.size() >= 1) {
-        const BoneState& b0 = _bones[0];
-        if (b0.mo) {
-            auto data = b0.mo->read(sofa::core::ConstVecCoordId::position());
-            const RigidCoord& c = data->getValue()[0];
-            out->tibia.px = c.getCenter()[0];
-            out->tibia.py = c.getCenter()[1];
-            out->tibia.pz = c.getCenter()[2];
-            out->tibia.qx = c.getOrientation()[0];
-            out->tibia.qy = c.getOrientation()[1];
-            out->tibia.qz = c.getOrientation()[2];
-            out->tibia.qw = c.getOrientation()[3];
-        }
-    }
-
-    if (_bones.size() >= 2) {
-        const BoneState& b1 = _bones[1];
-        if (b1.mo) {
-            auto data = b1.mo->read(sofa::core::ConstVecCoordId::position());
-            const RigidCoord& c = data->getValue()[0];
-            out->talus.px = c.getCenter()[0];
-            out->talus.py = c.getCenter()[1];
-            out->talus.pz = c.getCenter()[2];
-            out->talus.qx = c.getOrientation()[0];
-            out->talus.qy = c.getOrientation()[1];
-            out->talus.qz = c.getOrientation()[2];
-            out->talus.qw = c.getOrientation()[3];
-        }
-    }
+    // Name-based lookup — independent of bone insertion order
+    fillBoneFrame("Tibia", &out->tibia);
+    fillBoneFrame("Talus", &out->talus);
+    fillBoneFrame("Calcaneus", &out->calcaneus);
 
     // Joint angles
     computeJointAngles(out->joint_angles_deg);
@@ -556,6 +561,23 @@ int SceneBuilder::fillSnapshot(SofaFrameSnapshot* out) const {
     return 0;
 }
 
+void SceneBuilder::fillBoneFrame(const char* name, SofaRigidFrame* frame) const {
+    const BoneState* b = findBone(name);
+    if (!b || !b->mo) {
+        *frame = {};
+        return;
+    }
+    auto data = b->mo->read(SOFA_CONST_POSITION);
+    const RigidCoord& c = data->getValue()[0];
+    frame->px = c.getCenter()[0];
+    frame->py = c.getCenter()[1];
+    frame->pz = c.getCenter()[2];
+    frame->qx = c.getOrientation()[0];
+    frame->qy = c.getOrientation()[1];
+    frame->qz = c.getOrientation()[2];
+    frame->qw = c.getOrientation()[3];
+}
+
 // ---------------------------------------------------------------------------
 // Joint angle computation
 // ---------------------------------------------------------------------------
@@ -569,11 +591,11 @@ void SceneBuilder::computeJointAngles(double angles_deg[3]) const {
     const BoneState& b1 = _bones[1];
     if (!b0.mo || !b1.mo) return;
 
-    auto b0_data = b0.mo->read(sofa::core::ConstVecCoordId::position());
+    auto b0_data = b0.mo->read(SOFA_CONST_POSITION);
     const RigidCoord& b0_coord = b0_data->getValue()[0];
     Quat b0_quat = b0_coord.getOrientation();
 
-    auto b1_data = b1.mo->read(sofa::core::ConstVecCoordId::position());
+    auto b1_data = b1.mo->read(SOFA_CONST_POSITION);
     const RigidCoord& b1_coord = b1_data->getValue()[0];
     Quat b1_quat = b1_coord.getOrientation();
 
@@ -603,12 +625,286 @@ void SceneBuilder::computeJointAngles(double angles_deg[3]) const {
 }
 
 // ---------------------------------------------------------------------------
+// Deformable tissue addition
+// ---------------------------------------------------------------------------
+
+int SceneBuilder::addDeformableTissue(const SofaDeformableConfig& config) {
+    if (_state == SceneBuilderState::Empty) {
+        setError("No scene created — call createScene() first");
+        return 1;
+    }
+    if (_state == SceneBuilderState::Finalized) {
+        setError("Scene already finalized — cannot add deformable tissue");
+        return 1;
+    }
+    if (!config.vertices || config.vertex_count <= 0) {
+        setError("Deformable tissue requires vertices");
+        return 1;
+    }
+    if (!config.tetrahedra || config.tetra_count <= 0) {
+        setError("Deformable tissue requires tetrahedra");
+        return 1;
+    }
+
+    namespace sa = sofa::simpleapi;
+
+    std::string name = config.name ? config.name : "Deformable";
+
+    auto tissue_node = sa::createChild(_root, name);
+
+    // Required plugins for FEM + topology
+    sa::createObject(tissue_node, "RequiredPlugin", {
+        {"pluginName", "Sofa.Component.Topology.Container.Dynamic "
+         "Sofa.Component.Topology.Mapping "
+         "Sofa.Component.SolidMechanics.FEM.Elastic "
+         "Sofa.Component.LinearSolver.Direct"}
+    });
+
+    // ODE solver + direct linear solver for FEM
+    sa::createObject(tissue_node, "EulerImplicitSolver", {
+        {"rayleighStiffness", "0.1"},
+        {"rayleighMass", "1.0"},
+    });
+    sa::createObject(tissue_node, "SparseLDLSolver", {});
+
+    // Build position string from vertex data
+    std::ostringstream pos_ss;
+    for (int i = 0; i < config.vertex_count; i++) {
+        if (i > 0) pos_ss << " ";
+        pos_ss << config.vertices[i * 3]
+               << " " << config.vertices[i * 3 + 1]
+               << " " << config.vertices[i * 3 + 2];
+    }
+
+    // Build tetrahedra string
+    std::ostringstream tet_ss;
+    for (int i = 0; i < config.tetra_count; i++) {
+        if (i > 0) tet_ss << " ";
+        tet_ss << config.tetrahedra[i * 4]
+               << " " << config.tetrahedra[i * 4 + 1]
+               << " " << config.tetrahedra[i * 4 + 2]
+               << " " << config.tetrahedra[i * 4 + 3];
+    }
+
+    // Topology container + modifier
+    sa::createObject(tissue_node, "TetrahedronSetTopologyContainer", {
+        {"name", "TetraTopo"},
+        {"position", pos_ss.str()},
+        {"tetrahedra", tet_ss.str()},
+    });
+    sa::createObject(tissue_node, "TetrahedronSetTopologyModifier", {
+        {"name", "TetraModifier"},
+    });
+
+    // Mechanical object
+    sa::createObject(tissue_node, "MechanicalObject", {
+        {"template", "Vec3d"},
+        {"name", name + "MO"},
+    });
+
+    // Mass
+    std::ostringstream density_ss;
+    density_ss << config.mass_density;
+    sa::createObject(tissue_node, "MeshMatrixMass", {
+        {"totalMass", density_ss.str()},
+    });
+
+    // FEM force field
+    std::ostringstream young_ss, poisson_ss;
+    young_ss << config.young_modulus;
+    poisson_ss << config.poisson_ratio;
+    sa::createObject(tissue_node, "TetrahedronFEMForceField", {
+        {"template", "Vec3d"},
+        {"youngModulus", young_ss.str()},
+        {"poissonRatio", poisson_ss.str()},
+        {"method", "large"},
+    });
+
+    // Surface extraction sub-node for visualization
+    auto surface_node = sa::createChild(tissue_node, name + "Surface");
+    sa::createObject(surface_node, "TriangleSetTopologyContainer", {
+        {"name", "SurfaceTopo"},
+    });
+    sa::createObject(surface_node, "TriangleSetTopologyModifier", {});
+    sa::createObject(surface_node, "Tetra2TriangleTopologicalMapping", {
+        {"input", "@../" + std::string("TetraTopo")},
+        {"output", "@SurfaceTopo"},
+    });
+
+    // Store deformable state
+    DeformableState ds;
+    ds.name = name;
+    ds.parent_bone = config.parent_bone ? config.parent_bone : "";
+    ds.node = tissue_node;
+    ds.surface_node = surface_node;
+    _deformables.push_back(std::move(ds));
+
+    return 0;
+}
+
+// ---------------------------------------------------------------------------
+// Resection
+// ---------------------------------------------------------------------------
+
+int SceneBuilder::executeResection(const SofaResectionCommand& cmd) {
+    if (_state != SceneBuilderState::Finalized) {
+        setError("Scene not finalized");
+        return 1;
+    }
+
+    std::string bone_name = cmd.bone_name ? cmd.bone_name : "";
+
+    // Find the deformable tissue (match by name or parent_bone, or use first one)
+    DeformableState* target = nullptr;
+    for (auto& d : _deformables) {
+        if (!bone_name.empty() && (d.name == bone_name || d.parent_bone == bone_name)) {
+            target = &d;
+            break;
+        }
+    }
+    if (!target && !_deformables.empty()) {
+        target = &_deformables[0];
+    }
+    if (!target) {
+        setError("No deformable tissue found");
+        return 1;
+    }
+    if (!target->topo || !target->modifier || !target->mo) {
+        setError("Deformable tissue not properly resolved");
+        return 1;
+    }
+
+    Vec3 plane_point(cmd.plane_point[0], cmd.plane_point[1], cmd.plane_point[2]);
+    Vec3 plane_normal(cmd.plane_normal[0], cmd.plane_normal[1], cmd.plane_normal[2]);
+    plane_normal.normalize();
+
+    // Read current positions
+    auto pos_data = target->mo->read(SOFA_CONST_POSITION);
+    const auto& positions = pos_data->getValue();
+
+    // Get tetrahedra
+    const auto& tetras = target->topo->getTetrahedronArray();
+
+    // Find tetrahedra whose centroid is below the plane (dot < 0)
+    sofa::type::vector<sofa::Index> to_remove;
+    for (sofa::Index i = 0; i < tetras.size(); i++) {
+        const auto& tet = tetras[i];
+
+        // Compute centroid (average of 4 vertices)
+        Vec3 centroid(0, 0, 0);
+        for (int v = 0; v < 4; v++) {
+            centroid += positions[tet[v]];
+        }
+        centroid *= 0.25;
+
+        // Remove if centroid is below the plane
+        double dot = (centroid - plane_point) * plane_normal;
+        if (dot < 0.0) {
+            to_remove.push_back(i);
+        }
+    }
+
+    if (to_remove.empty()) {
+        target->last_removed_count = 0;
+        return 0;
+    }
+
+    // Remove tetrahedra (sorted descending for safe removal)
+    std::sort(to_remove.begin(), to_remove.end(), std::greater<sofa::Index>());
+    target->modifier->removeTetrahedra(to_remove, true);
+
+    target->last_removed_count = static_cast<int>(to_remove.size());
+    target->topology_dirty = true;
+
+    return 0;
+}
+
+int SceneBuilder::getSurfaceMesh(SofaSurfaceMesh* out) const {
+    if (!out) {
+        return 1;
+    }
+    if (_deformables.empty()) {
+        out->vertex_count = 0;
+        out->triangle_count = 0;
+        return 0;
+    }
+
+    const DeformableState& ds = _deformables[0];
+    if (!ds.mo || !ds.surface_node) {
+        out->vertex_count = 0;
+        out->triangle_count = 0;
+        return 0;
+    }
+
+    // Get positions from mechanical object
+    auto pos_data = ds.mo->read(SOFA_CONST_POSITION);
+    const auto& positions = pos_data->getValue();
+
+    // Get surface triangles from surface topology
+    auto* surface_topo = ds.surface_node->getObject("SurfaceTopo");
+    auto* tri_container = dynamic_cast<
+        sofa::component::topology::container::dynamic::TriangleSetTopologyContainer*>(surface_topo);
+
+    if (!tri_container) {
+        out->vertex_count = 0;
+        out->triangle_count = 0;
+        return 0;
+    }
+
+    const auto& triangles = tri_container->getTriangleArray();
+
+    // Fill output (capped by caller-provided capacity)
+    int vert_cap = out->vertex_count;
+    int tri_cap = out->triangle_count;
+
+    int actual_verts = static_cast<int>(positions.size());
+    int actual_tris = static_cast<int>(triangles.size());
+
+    out->vertex_count = std::min(actual_verts, vert_cap);
+    out->triangle_count = std::min(actual_tris, tri_cap);
+
+    if (out->vertices) {
+        for (int i = 0; i < out->vertex_count; i++) {
+            out->vertices[i * 3 + 0] = static_cast<float>(positions[i][0]);
+            out->vertices[i * 3 + 1] = static_cast<float>(positions[i][1]);
+            out->vertices[i * 3 + 2] = static_cast<float>(positions[i][2]);
+        }
+    }
+
+    if (out->triangles) {
+        for (int i = 0; i < out->triangle_count; i++) {
+            out->triangles[i * 3 + 0] = static_cast<int>(triangles[i][0]);
+            out->triangles[i * 3 + 1] = static_cast<int>(triangles[i][1]);
+            out->triangles[i * 3 + 2] = static_cast<int>(triangles[i][2]);
+        }
+    }
+
+    return 0;
+}
+
+bool SceneBuilder::hasTopologyChanged() const {
+    for (const auto& d : _deformables) {
+        if (d.topology_dirty) return true;
+    }
+    return false;
+}
+
+int SceneBuilder::removedElementCount() const {
+    int total = 0;
+    for (const auto& d : _deformables) {
+        total += d.last_removed_count;
+    }
+    return total;
+}
+
+// ---------------------------------------------------------------------------
 // Reset
 // ---------------------------------------------------------------------------
 
 void SceneBuilder::reset() {
     _bones.clear();
     _ligaments.clear();
+    _deformables.clear();
     _root.reset();
     _step_count = 0;
     _last_force = {0, 0, 0};

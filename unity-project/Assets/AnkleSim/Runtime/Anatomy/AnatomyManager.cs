@@ -71,6 +71,21 @@ namespace AnkleSim.Runtime.Anatomy
             return go;
         }
 
+        public void ApplyMaterialsByRole(BoneMaterialConfig materialConfig)
+        {
+            if (materialConfig == null) return;
+
+            var simulatedMat = materialConfig.CreateSimulatedBoneMaterial();
+            var contextMat = materialConfig.CreateContextBoneMaterial();
+
+            foreach (var kvp in _boneObjects)
+            {
+                var renderer = kvp.Value.GetComponent<MeshRenderer>();
+                if (renderer == null) continue;
+                renderer.sharedMaterial = kvp.Key.IsSimulated() ? simulatedMat : contextMat;
+            }
+        }
+
         public Bounds GetAnatomyBounds()
         {
             var bounds = new Bounds(transform.position, Vector3.zero);

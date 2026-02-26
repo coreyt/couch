@@ -78,6 +78,7 @@ namespace AnkleSim.Bridge
             {
                 tibia = new SofaRigidFrame { qw = 1.0 },
                 talus = new SofaRigidFrame { qw = 1.0 },
+                calcaneus = new SofaRigidFrame { qw = 1.0 },
                 jointAnglesDeg = new double[3],
                 ligamentForce = new double[3],
                 ligamentTorque = new double[3],

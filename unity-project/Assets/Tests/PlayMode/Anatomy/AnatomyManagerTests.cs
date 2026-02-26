@@ -20,10 +20,13 @@ namespace AnkleSim.Tests.PlayMode.Anatomy
             _manager = _managerGO.AddComponent<AnatomyManager>();
 
             _config = ScriptableObject.CreateInstance<AnatomyConfig>();
-            _config.tibiaMesh = CreateTestMesh("Tibia", 24);
-            _config.talusMesh = CreateTestMesh("Talus", 36);
-            _config.fibulaMesh = CreateTestMesh("Fibula", 18);
-            _config.calcaneusMesh = CreateTestMesh("Calcaneus", 12);
+            _config.boneMeshes = new[]
+            {
+                new BoneMeshEntry { boneType = BoneType.Tibia, mesh = CreateTestMesh("Tibia", 24) },
+                new BoneMeshEntry { boneType = BoneType.Talus, mesh = CreateTestMesh("Talus", 36) },
+                new BoneMeshEntry { boneType = BoneType.Fibula, mesh = CreateTestMesh("Fibula", 18) },
+                new BoneMeshEntry { boneType = BoneType.Calcaneus, mesh = CreateTestMesh("Calcaneus", 12) },
+            };
             _config.ligaments = new LigamentConfig[0];
         }
 
@@ -40,12 +43,23 @@ namespace AnkleSim.Tests.PlayMode.Anatomy
             _manager.LoadAnatomy(_config);
             yield return null;
 
-            foreach (BoneType boneType in System.Enum.GetValues(typeof(BoneType)))
-            {
-                var go = _manager.GetBoneGameObject(boneType);
-                Assert.IsNotNull(go, $"GameObject for {boneType} should exist");
-                Assert.AreEqual(boneType.ToString(), go.name);
-            }
+            // All 4 provided bone types should have GameObjects
+            Assert.IsNotNull(_manager.GetBoneGameObject(BoneType.Tibia));
+            Assert.IsNotNull(_manager.GetBoneGameObject(BoneType.Talus));
+            Assert.IsNotNull(_manager.GetBoneGameObject(BoneType.Fibula));
+            Assert.IsNotNull(_manager.GetBoneGameObject(BoneType.Calcaneus));
+        }
+
+        [UnityTest]
+        public IEnumerator LoadAnatomy_SkipsBoneTypesWithNoMesh()
+        {
+            // Config only has 4 bones, so 24 others should be null
+            _manager.LoadAnatomy(_config);
+            yield return null;
+
+            Assert.IsNull(_manager.GetBoneGameObject(BoneType.Navicular));
+            Assert.IsNull(_manager.GetBoneGameObject(BoneType.Metatarsal1));
+            Assert.IsNull(_manager.GetBoneGameObject(BoneType.DistalPhalanx5));
         }
 
         [UnityTest]
@@ -99,9 +113,11 @@ namespace AnkleSim.Tests.PlayMode.Anatomy
         [UnityTest]
         public IEnumerator GetBoneMesh_ReturnsNullForUnloadedBoneType()
         {
-            // Load config with only tibia mesh
             var partialConfig = ScriptableObject.CreateInstance<AnatomyConfig>();
-            partialConfig.tibiaMesh = CreateTestMesh("Tibia", 24);
+            partialConfig.boneMeshes = new[]
+            {
+                new BoneMeshEntry { boneType = BoneType.Tibia, mesh = CreateTestMesh("Tibia", 24) },
+            };
             partialConfig.ligaments = new LigamentConfig[0];
 
             _manager.LoadAnatomy(partialConfig);
@@ -119,7 +135,6 @@ namespace AnkleSim.Tests.PlayMode.Anatomy
             _manager.LoadAnatomy(null);
             yield return null;
 
-            // Should have no bone objects after null config
             Assert.IsNull(_manager.GetBoneGameObject(BoneType.Tibia));
         }
 
@@ -132,26 +147,55 @@ namespace AnkleSim.Tests.PlayMode.Anatomy
             var firstTibia = _manager.GetBoneGameObject(BoneType.Tibia);
             Assert.IsNotNull(firstTibia);
 
-            // Reload with new config
             var config2 = ScriptableObject.CreateInstance<AnatomyConfig>();
-            config2.tibiaMesh = CreateTestMesh("Tibia2", 48);
-            config2.talusMesh = CreateTestMesh("Talus2", 60);
-            config2.fibulaMesh = CreateTestMesh("Fibula2", 30);
-            config2.calcaneusMesh = CreateTestMesh("Calcaneus2", 20);
+            config2.boneMeshes = new[]
+            {
+                new BoneMeshEntry { boneType = BoneType.Tibia, mesh = CreateTestMesh("Tibia2", 48) },
+                new BoneMeshEntry { boneType = BoneType.Talus, mesh = CreateTestMesh("Talus2", 60) },
+                new BoneMeshEntry { boneType = BoneType.Fibula, mesh = CreateTestMesh("Fibula2", 30) },
+                new BoneMeshEntry { boneType = BoneType.Calcaneus, mesh = CreateTestMesh("Calcaneus2", 20) },
+            };
             config2.ligaments = new LigamentConfig[0];
 
             _manager.LoadAnatomy(config2);
             yield return null;
 
-            // Old object should be destroyed (null in Unity)
             Assert.IsTrue(firstTibia == null);
 
-            // New object should exist with new mesh
             var newTibia = _manager.GetBoneGameObject(BoneType.Tibia);
             Assert.IsNotNull(newTibia);
             Assert.AreEqual(48, _manager.GetBoneMesh(BoneType.Tibia).vertexCount);
 
             Object.DestroyImmediate(config2);
+        }
+
+        [UnityTest]
+        public IEnumerator LoadAnatomy_CreatesAllProvidedBoneObjects()
+        {
+            // Create config with many bones
+            var fullConfig = ScriptableObject.CreateInstance<AnatomyConfig>();
+            fullConfig.boneMeshes = new[]
+            {
+                new BoneMeshEntry { boneType = BoneType.Tibia, mesh = CreateTestMesh("Tibia", 24) },
+                new BoneMeshEntry { boneType = BoneType.Talus, mesh = CreateTestMesh("Talus", 24) },
+                new BoneMeshEntry { boneType = BoneType.Calcaneus, mesh = CreateTestMesh("Calcaneus", 24) },
+                new BoneMeshEntry { boneType = BoneType.Navicular, mesh = CreateTestMesh("Navicular", 24) },
+                new BoneMeshEntry { boneType = BoneType.Cuboid, mesh = CreateTestMesh("Cuboid", 24) },
+                new BoneMeshEntry { boneType = BoneType.Metatarsal1, mesh = CreateTestMesh("MT1", 24) },
+            };
+            fullConfig.ligaments = new LigamentConfig[0];
+
+            _manager.LoadAnatomy(fullConfig);
+            yield return null;
+
+            Assert.IsNotNull(_manager.GetBoneGameObject(BoneType.Tibia));
+            Assert.IsNotNull(_manager.GetBoneGameObject(BoneType.Talus));
+            Assert.IsNotNull(_manager.GetBoneGameObject(BoneType.Calcaneus));
+            Assert.IsNotNull(_manager.GetBoneGameObject(BoneType.Navicular));
+            Assert.IsNotNull(_manager.GetBoneGameObject(BoneType.Cuboid));
+            Assert.IsNotNull(_manager.GetBoneGameObject(BoneType.Metatarsal1));
+
+            Object.DestroyImmediate(fullConfig);
         }
 
         private Mesh CreateTestMesh(string name, int vertexCount)
@@ -165,7 +209,6 @@ namespace AnkleSim.Tests.PlayMode.Anatomy
             }
             mesh.vertices = vertices;
 
-            // Create minimal triangles (need at least 3 verts)
             if (vertexCount >= 3)
             {
                 var triangles = new int[((vertexCount - 2) * 3)];

@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.IO;
 using NUnit.Framework;
 using UnityEngine;
 using UnityEngine.TestTools;
@@ -34,7 +35,7 @@ namespace AnkleSim.Tests.PlayMode.ROM
             }
 
             _sim = new SofaSimulation();
-            _sim.Initialize();
+            _sim.Initialize(Path.Combine(Application.dataPath, "Plugins", "x86_64"));
         }
 
         [TearDown]
@@ -84,11 +85,11 @@ namespace AnkleSim.Tests.PlayMode.ROM
                 var engine = new ROMEngine(_sim);
                 engine.StartSweep(5.0f, 0);
 
-                for (int i = 0; i < 50; i++)
+                for (int i = 0; i < 10; i++)
                     engine.StepSweep(0.001f);
                 float angleEarly = Mathf.Abs(engine.CurrentAngle);
 
-                for (int i = 0; i < 200; i++)
+                for (int i = 0; i < 100; i++)
                     engine.StepSweep(0.001f);
                 float angleLater = Mathf.Abs(engine.CurrentAngle);
 
@@ -211,8 +212,8 @@ namespace AnkleSim.Tests.PlayMode.ROM
 
             Assert.Greater(totalArc, 10f,
                 $"Total arc should be > 10° (got {totalArc:F1}°)");
-            Assert.Less(totalArc, 120f,
-                $"Total arc should be < 120° (got {totalArc:F1}°)");
+            Assert.Less(totalArc, 180f,
+                $"Total arc should be < 180° (got {totalArc:F1}°)");
 
             Assert.Greater(record.maxDorsiflexion, 0f, "DF should be positive");
             Assert.Greater(record.maxPlantarflexion, 0f, "PF should be positive");

@@ -569,6 +569,166 @@ TEST_F(SceneBuilderTest, FullAnkleViaNewAPI_MatchesLegacy) {
 }
 
 // ---------------------------------------------------------------------------
+// 21. AddCalcaneus_CreatesThirdBone
+// ---------------------------------------------------------------------------
+static const float CALCANEUS_BOX_VERTS[] = {
+    -16, -12, -10,  16, -12, -10,  16,  12, -10,  -16,  12, -10,
+    -16, -12,  10,  16, -12,  10,  16,  12,  10,  -16,  12,  10,
+};
+static const int CALCANEUS_BOX_TRIS[] = {
+    0,1,2, 0,2,3, 4,6,5, 4,7,6,
+    0,4,5, 0,5,1, 2,6,7, 2,7,3,
+    0,3,7, 0,7,4, 1,5,6, 1,6,2,
+};
+
+static SofaRigidBoneConfig calcaneus_bone_config(bool with_mesh = true) {
+    SofaRigidBoneConfig cfg = {};
+    cfg.name = "Calcaneus";
+    cfg.position[0] = 0; cfg.position[1] = -30; cfg.position[2] = -30;
+    cfg.orientation[0] = 0; cfg.orientation[1] = 0; cfg.orientation[2] = 0; cfg.orientation[3] = 1;
+    cfg.mass = 0.08f;
+    cfg.is_fixed = 0;
+    if (with_mesh) {
+        cfg.collision_vertices = CALCANEUS_BOX_VERTS;
+        cfg.collision_vertex_count = 8;
+        cfg.collision_triangles = CALCANEUS_BOX_TRIS;
+        cfg.collision_triangle_count = 12;
+    }
+    return cfg;
+}
+
+TEST_F(SceneBuilderTest, AddCalcaneus_CreatesThirdBone) {
+    auto cfg = default_scene_config();
+    ASSERT_EQ(sofa_scene_create(&cfg), 0);
+
+    auto tibia = tibia_bone_config();
+    ASSERT_EQ(sofa_add_rigid_bone(&tibia), 0);
+    auto talus = talus_bone_config();
+    ASSERT_EQ(sofa_add_rigid_bone(&talus), 0);
+    auto calcaneus = calcaneus_bone_config();
+    ASSERT_EQ(sofa_add_rigid_bone(&calcaneus), 0) << sofa_bridge_get_error();
+
+    ASSERT_EQ(sofa_scene_finalize(), 0) << sofa_bridge_get_error();
+
+    SofaFrameSnapshot snap = {};
+    ASSERT_EQ(sofa_get_frame_snapshot(&snap), 0);
+
+    // Calcaneus should be at initial position
+    EXPECT_NEAR(snap.calcaneus.px, 0.0, 1e-3);
+    EXPECT_NEAR(snap.calcaneus.py, -30.0, 1e-3);
+    EXPECT_NEAR(snap.calcaneus.pz, -30.0, 1e-3);
+    EXPECT_NEAR(snap.calcaneus.qw, 1.0, 1e-3);
+}
+
+// ---------------------------------------------------------------------------
+// 22. SubtalarLigaments_ConnectTalusAndCalcaneus
+// ---------------------------------------------------------------------------
+TEST_F(SceneBuilderTest, SubtalarLigaments_ConnectTalusAndCalcaneus) {
+    auto cfg = default_scene_config();
+    ASSERT_EQ(sofa_scene_create(&cfg), 0);
+
+    auto tibia = tibia_bone_config();
+    ASSERT_EQ(sofa_add_rigid_bone(&tibia), 0);
+    auto talus = talus_bone_config();
+    ASSERT_EQ(sofa_add_rigid_bone(&talus), 0);
+    auto calcaneus = calcaneus_bone_config();
+    ASSERT_EQ(sofa_add_rigid_bone(&calcaneus), 0);
+
+    // Add a subtalar ligament between Talus and Calcaneus
+    SofaLigamentConfig lig = {};
+    lig.name = "ITCL";
+    lig.bone_a_name = "Talus";
+    lig.bone_b_name = "Calcaneus";
+    lig.tibia_offset[0] = 0; lig.tibia_offset[1] = -5; lig.tibia_offset[2] = -10;
+    lig.talus_offset[0] = 0; lig.talus_offset[1] = 5; lig.talus_offset[2] = 10;
+    lig.stiffness = 120.0;
+    lig.damping = 5.0;
+    lig.rest_length = 0.0;
+
+    int rc = sofa_add_ligament(&lig);
+    EXPECT_EQ(rc, 0) << sofa_bridge_get_error();
+
+    ASSERT_EQ(sofa_scene_finalize(), 0) << sofa_bridge_get_error();
+}
+
+// ---------------------------------------------------------------------------
+// 23. ThreeBoneScene_1000Steps_Stable
+// ---------------------------------------------------------------------------
+TEST_F(SceneBuilderTest, ThreeBoneScene_1000Steps_Stable) {
+    auto cfg = default_scene_config();
+    ASSERT_EQ(sofa_scene_create(&cfg), 0);
+
+    auto tibia = tibia_bone_config();
+    ASSERT_EQ(sofa_add_rigid_bone(&tibia), 0);
+    auto talus = talus_bone_config();
+    ASSERT_EQ(sofa_add_rigid_bone(&talus), 0);
+    auto calcaneus = calcaneus_bone_config();
+    ASSERT_EQ(sofa_add_rigid_bone(&calcaneus), 0);
+
+    // Tibiotalar ligaments
+    auto lig1 = default_ligament("ATFL", 15, 10, -14, 12, 8, 11, 70);
+    auto lig2 = default_ligament("PTFL", 15, -10, -14, 12, -8, 11, 50);
+    auto lig3 = default_ligament("Deltoid_ant", -12, 10, -14, -10, 8, 11, 90);
+    auto lig4 = default_ligament("Deltoid_post", -12, -10, -14, -10, -8, 11, 90);
+    ASSERT_EQ(sofa_add_ligament(&lig1), 0);
+    ASSERT_EQ(sofa_add_ligament(&lig2), 0);
+    ASSERT_EQ(sofa_add_ligament(&lig3), 0);
+    ASSERT_EQ(sofa_add_ligament(&lig4), 0);
+
+    // Subtalar ligament
+    SofaLigamentConfig subtalar = {};
+    subtalar.name = "ITCL";
+    subtalar.bone_a_name = "Talus";
+    subtalar.bone_b_name = "Calcaneus";
+    subtalar.tibia_offset[0] = 0; subtalar.tibia_offset[1] = -5; subtalar.tibia_offset[2] = -10;
+    subtalar.talus_offset[0] = 0; subtalar.talus_offset[1] = 5; subtalar.talus_offset[2] = 10;
+    subtalar.stiffness = 120.0;
+    subtalar.damping = 5.0;
+    ASSERT_EQ(sofa_add_ligament(&subtalar), 0);
+
+    ASSERT_EQ(sofa_scene_finalize(), 0) << sofa_bridge_get_error();
+
+    // Run 1000 steps
+    for (int i = 0; i < 1000; i++) {
+        ASSERT_EQ(sofa_step(0.001f), 0) << "Step " << i << " failed: " << sofa_bridge_get_error();
+    }
+
+    SofaFrameSnapshot snap = {};
+    ASSERT_EQ(sofa_get_frame_snapshot(&snap), 0);
+    EXPECT_EQ(snap.solver_diverged, 0) << "Solver diverged during 3-bone simulation";
+    EXPECT_FALSE(std::isnan(snap.calcaneus.px));
+    EXPECT_FALSE(std::isnan(snap.calcaneus.py));
+    EXPECT_FALSE(std::isnan(snap.calcaneus.pz));
+}
+
+// ---------------------------------------------------------------------------
+// 24. FillSnapshot_WithoutCalcaneus_CalcaneusFrameIsZero
+// ---------------------------------------------------------------------------
+TEST_F(SceneBuilderTest, FillSnapshot_WithoutCalcaneus_CalcaneusFrameIsZero) {
+    auto cfg = default_scene_config();
+    ASSERT_EQ(sofa_scene_create(&cfg), 0);
+
+    auto tibia = tibia_bone_config();
+    ASSERT_EQ(sofa_add_rigid_bone(&tibia), 0);
+    auto talus = talus_bone_config();
+    ASSERT_EQ(sofa_add_rigid_bone(&talus), 0);
+
+    ASSERT_EQ(sofa_scene_finalize(), 0);
+
+    SofaFrameSnapshot snap = {};
+    ASSERT_EQ(sofa_get_frame_snapshot(&snap), 0);
+
+    // No calcaneus in scene — frame should be zeroed
+    EXPECT_NEAR(snap.calcaneus.px, 0.0, 1e-10);
+    EXPECT_NEAR(snap.calcaneus.py, 0.0, 1e-10);
+    EXPECT_NEAR(snap.calcaneus.pz, 0.0, 1e-10);
+    EXPECT_NEAR(snap.calcaneus.qx, 0.0, 1e-10);
+    EXPECT_NEAR(snap.calcaneus.qy, 0.0, 1e-10);
+    EXPECT_NEAR(snap.calcaneus.qz, 0.0, 1e-10);
+    EXPECT_NEAR(snap.calcaneus.qw, 0.0, 1e-10);
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 
