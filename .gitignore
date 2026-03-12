@@ -1,5 +1,4 @@
 # Aural
-.aural/
 
 # Build artifacts
 spike/spike2_native/build/
@@ -15,3 +14,18 @@ unity-project/TestResults/
 # OS
 .DS_Store
 Thumbs.db
+
+.wake/*
+!.wake/shared/
+.env
+.env.*
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+node_modules/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
